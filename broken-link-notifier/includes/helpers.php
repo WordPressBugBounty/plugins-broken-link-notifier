@@ -1453,18 +1453,23 @@ class BLNOTIFIER_HELPERS {
         // Handle the filtered link if false
         if ( !$link ) {
             return [
-                'type' => 'broken',
-                'code' => 0,
-                'text' => 'Did not pass pre-check filter',
-                'link' => $link
+                'type' => 'omitted',
+                'code' => 200,
+                'text' => 'No link found',
+                'link' => 'Unknown'
             ];
 
         // Handle the filtered link if in-proper array
         } elseif ( is_array( $link ) && ( !isset( $link[ 'type' ] ) || !isset( $link[ 'code' ] ) || !isset( $link[ 'text' ] ) ) ) {
+            $missing = [];
+            if ( !isset( $link[ 'type' ] ) ) { $missing[] = 'type'; }
+            if ( !isset( $link[ 'code' ] ) ) { $missing[] = 'code'; }
+            if ( !isset( $link[ 'text' ] ) ) { $missing[] = 'text'; }
+
             return [
                 'type' => 'broken',
                 'code' => 0,
-                'text' => 'Did not pass pre-check filter',
+                'text' => 'Did not pass pre-check filter: missing ' . implode( ', ' . $missing ),
                 'link' => $link
             ];
     
