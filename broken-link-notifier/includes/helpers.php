@@ -1430,7 +1430,7 @@ class BLNOTIFIER_HELPERS {
         if ( !is_array( $link ) && str_starts_with( $link, '//' ) ) {
 
             // Get the current protocol (http or https)
-            $protocol = isset( $_SERVER['HTTPS'] ) && sanitize_text_field( wp_unslash( $_SERVER['HTTPS'] ) ) === 'on' ? 'https' : 'http';
+            $protocol = isset( $_SERVER[ 'HTTPS' ] ) && sanitize_text_field( wp_unslash( $_SERVER[ 'HTTPS' ] ) ) === 'on' ? 'https' : 'http';
             
             // Prepend the protocol to the link
             $link = $protocol . ':' . $link;
