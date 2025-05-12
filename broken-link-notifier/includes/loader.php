@@ -105,6 +105,7 @@ class BLNOTIFIER_LOADER {
         require_once BLNOTIFIER_PLUGIN_INCLUDES_PATH.'msteams.php';
         require_once BLNOTIFIER_PLUGIN_INCLUDES_PATH.'results.php';
         require_once BLNOTIFIER_PLUGIN_INCLUDES_PATH.'integrations.php';
+        require_once BLNOTIFIER_PLUGIN_INCLUDES_PATH.'export.php';
         
     } // End load_dependencies()
 

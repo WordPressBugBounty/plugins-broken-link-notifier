@@ -4,7 +4,7 @@ Tags: broken, link, links, checker, notify
 Requires at least: 5.9
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.2.5.3
+Stable tag: 1.2.6.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -127,6 +127,13 @@ https://youtu.be/gM9Qy0HLplU
 9. Developer hooks on Help tab
 
 == Changelog ==
+= 1.2.6.1 =
+* Fix: Option in settings to show good links on results page was set to true by default; turned it off
+
+= 1.2.6 =
+* Update: Added an option in settings to show good links on results page (props to @colnago1 for suggestion)
+* Update: Added an export page (props to @colnago1 for suggestion)
+
 = 1.2.5.3 =
 * Fix: Link search not finding some URLS
 * Fix: Undefined array key "min"
