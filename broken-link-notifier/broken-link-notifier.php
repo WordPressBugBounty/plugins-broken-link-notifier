@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:         Broken Link Notifier
- * Plugin URI:          https://github.com/apos37/broken-link-notifier
+ * Plugin URI:          https://pluginrx.com/plugin/broken-link-notifier/
  * Description:         Get notified when someone loads a page with a broken link
  * Version:             1.3.0
  * Requires at least:   5.9
