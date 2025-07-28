@@ -41,6 +41,14 @@ class BLNOTIFIER_MENU {
 
 
     /**
+     * The capability required to access the menu
+     *
+     * @var string
+     */
+    public $capability = 'manage_broken_links';
+
+
+    /**
 	 * Constructor
 	 */
 	public function __construct() {
@@ -69,6 +77,9 @@ class BLNOTIFIER_MENU {
         // Add the menu
         add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 
+        // Update role after sett
+        add_action( 'admin_init', [ $this, 'update_roles' ] );
+
         // Fix the Manage link to show active
         add_filter( 'parent_file', [ $this, 'submenus' ] );
 
@@ -87,8 +98,35 @@ class BLNOTIFIER_MENU {
      * @return void
      */
     public function admin_menu() {
-        // Capability
-        $capability = sanitize_key( apply_filters( 'blnotifier_capability', 'manage_options' ) );
+        // Get the current user's roles
+        $current_user = wp_get_current_user();
+        $user_roles = (array) $current_user->roles;
+
+        $capability = 'do_not_allow';
+        $show_menu = false;
+
+        if ( in_array( 'administrator', $user_roles ) ) {
+            $capability = 'manage_options';
+            $show_menu = true;
+
+        } else {
+            $allowed_roles = get_option( 'blnotifier_editable_roles', [] );
+            if ( is_array( $allowed_roles ) && !empty( $allowed_roles ) ) {
+                foreach ( $allowed_roles as $role_slug => $value ) {
+                    $role_slug = sanitize_key( $role_slug );
+
+                    if ( in_array( $role_slug, $user_roles ) ) {
+                        $capability = $this->capability;
+                        $show_menu = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ( !$show_menu ) {
+            return;
+        }
 
         // Count broken links
         $count = (new BLNOTIFIER_HELPERS)->count_broken_links();
@@ -111,6 +149,43 @@ class BLNOTIFIER_MENU {
             $submenu[ BLNOTIFIER_TEXTDOMAIN ][] = [ $menu_item[0], $capability, $link ];
         }
     } // End admin_menu()
+
+
+    /**
+     * Update user roles
+     *
+     * @return void
+     */
+    public function update_roles() {
+        if ( isset( $_GET[ 'settings-updated' ] ) && $_GET[ 'settings-updated' ] == 'true' ) {
+
+            $allowed_roles = get_option( 'blnotifier_editable_roles', [] );
+            if ( is_array( $allowed_roles ) && !empty( $allowed_roles ) ) {
+                $saniotized_allowed_roles = [];
+                foreach ( $allowed_roles as $role_slug => $value ) {
+                    $saniotized_allowed_roles[] = sanitize_key( $role_slug );
+                }
+                $allowed_roles = $saniotized_allowed_roles;
+            }
+
+            $editable_roles = $this->get_editable_roles_choices();
+            if ( !empty( $editable_roles ) && is_array( $editable_roles ) ) {
+                
+                foreach ( $editable_roles as $editable_role_slug => $label ) {
+                    $role = get_role( $editable_role_slug );
+                    if ( !$role ) {
+                        continue;
+                    }
+
+                    if ( in_array( $editable_role_slug, $allowed_roles ) && ! $role->has_cap( $this->capability ) ) {
+                        $role->add_cap( $this->capability );
+                    } elseif ( $role->has_cap( $this->capability ) ) {
+                        $role->remove_cap( $this->capability );
+                    }
+                }
+            }
+        }
+    } // End update_roles()
 
 
     /**
@@ -448,6 +523,22 @@ class BLNOTIFIER_MENU {
                 'default'  => 0,
                 'min'      => 0,
                 'comments' => 'Use 0 to disable caching. If you are experienced performance issues, you can set the value to 28800 (8 hours), 43200 (12 hours), 86400 (24 hours) or whatever you feel is best. Broken and warning links will never be cached. Deactivating or uninstalling the plugin will clear the cache completely.'
+            ]
+        );
+
+        // User Roles for Editing Links
+        $roles_option_name = 'blnotifier_editable_roles';
+        register_setting( $this->page_slug, $roles_option_name, [ $this, 'sanitize_checkboxes' ] );
+        add_settings_field(
+            $roles_option_name,
+            'Allow These Additional Roles to Manage Broken Links',
+            [ $this, 'field_checkboxes' ],
+            $this->page_slug,
+            'general',
+            [
+                'class'    => $roles_option_name,
+                'name'     => $roles_option_name,
+                'options'  => $this->get_editable_roles_choices(),
             ]
         );
 
@@ -790,6 +881,25 @@ class BLNOTIFIER_MENU {
         }
         return $results;
     } // End get_post_type_choices()
+
+
+    /**
+     * Get editable roles choices
+     *
+     * @return array
+     */
+    public function get_editable_roles_choices() {
+        global $wp_roles;
+        $results = [];
+        $roles = $wp_roles->get_names();
+        foreach ( $roles as $role_slug => $role_name ) {
+            if ( $role_slug == 'administrator' ) {
+                continue;
+            }
+            $results[ $role_slug ] = $role_name;
+        }
+        return $results;
+    } // End get_editable_roles_choices()
 
 
     /**
