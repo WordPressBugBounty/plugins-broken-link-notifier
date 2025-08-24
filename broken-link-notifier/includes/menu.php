@@ -664,22 +664,23 @@ class BLNOTIFIER_MENU {
      */
     public function field_checkboxes( $args ) {
         $value = get_option( $args[ 'name' ] );
+
         if ( get_option( 'blnotifier_has_updated_settings' ) ) {
-            $value = !empty( $value ) ? array_keys( $value ) : [];
+            $value = ! empty( $value ) && is_array( $value ) ? array_keys( $value ) : [];
         } else {
-            $value = $args[ 'default' ];
+            $value = isset( $args[ 'default' ] ) && is_array( $args[ 'default' ] ) ? $args[ 'default' ] : [];
         }
-        
-        if ( isset( $args[ 'options' ] ) ) {
+
+        if ( isset( $args[ 'options' ] ) && is_array( $args[ 'options' ] ) ) {
             foreach ( $args[ 'options' ] as $key => $label ) {
                 $checked = in_array( $key, $value ) ? 'checked' : '';
                 printf(
                     '<input type="checkbox" id="%s" name="%s[%s]" value="1" %s/> <label for="%s">%s</label><br>',
-                    esc_html( $args[ 'name' ].'_'.$key ),
+                    esc_html( $args[ 'name' ] . '_' . $key ),
                     esc_html( $args[ 'name' ] ),
                     esc_attr( $key ),
                     esc_html( $checked ),
-                    esc_html( $args[ 'name' ].'_'.$key ),
+                    esc_html( $args[ 'name' ] . '_' . $key ),
                     esc_html( $label )
                 );
             }
@@ -874,11 +875,21 @@ class BLNOTIFIER_MENU {
     public function get_post_type_choices() {
         $HELPERS = new BLNOTIFIER_HELPERS;
         $results = [];
+
         $post_types = $HELPERS->get_post_types();
+
+        if ( ! is_array( $post_types ) || empty( $post_types ) ) {
+            return $results; // return empty array if no post types found
+        }
+
         foreach ( $post_types as $post_type ) {
             $post_type_name = $HELPERS->get_post_type_name( $post_type );
+            if ( $post_type_name === null ) {
+                $post_type_name = $post_type; // fallback to post type slug
+            }
             $results[ $post_type ] = $post_type_name;
         }
+
         return $results;
     } // End get_post_type_choices()
 
