@@ -2,16 +2,16 @@
 Contributors: apos37
 Tags: broken, link, links, checker, notify
 Requires at least: 6.0
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.8
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.txt
 
 Get notifications when a visitor loads a page with broken links
 
 == Description ==
-The "Broken Link Notifier" WordPress plugin is a vigilant guardian for your website's links, monitoring and alerting you to broken or dead links as users visit your site. This ensures a seamless user experience and helps prevent search engine ranking penalties. Unlike other broken link checker plugins that can cause performance and timeout issues with full site scans, this plugin focuses on notification, making it a great complement to offsite services that handle full site scans.
+The "Broken Link Notifier" WordPress plugin is a vigilant guardian for your website's links, monitoring and alerting you to broken or dead links as users visit your site. This ensures a seamless user experience and helps prevent search engine ranking penalties.
 
 This plugin:
 
@@ -19,8 +19,10 @@ This plugin:
 * Identifies broken links, including 404 errors, timeouts, images, and embedded YouTube videos
 * Notifies you via dashboard notifications, email, Discord, Slack and/or Microsoft Teams
 * Provides a list of broken links for easy review and correction
-* Allows easy replacement of links straight from the results page (**NEW with Version 1.2.0**)
-* Caches working (good) links to skip rechecking them for a configurable amount of time (**NEW with Version 1.2.5**)
+* Lets you browse every link on your site in one searchable table before checking their status (**NEW with Version 2.0**)
+* Runs a full two-step site-wide scan on your own schedule — discover every link, then check them all for broken links and warnings (**NEW with Version 2.0**)
+* Allows easy replacement of links straight from the results page
+* Caches working (good) links to skip rechecking them for a configurable amount of time
 
 With "Broken Link Notifier", you can:
 
@@ -28,7 +30,8 @@ With "Broken Link Notifier", you can:
 * Prevent search engines from indexing broken links
 * Maintain a professional and trustworthy website image
 * Save time and effort in manual link checking
-* Scan multiple pages at a time on the back-end from your WP List Tables
+* Discover and catalog every link on your site before you even check them
+* Run a full site scan on your own terms, without relying only on page-load visits
 * Improve performance by caching successful link checks (optional)
 
 This plugin is a must-have for website owners, developers, and SEO enthusiasts who want to guarantee a smooth and error-free browsing experience for their audience!
@@ -36,13 +39,21 @@ This plugin is a must-have for website owners, developers, and SEO enthusiasts w
 **IF THIS PLUGIN FLAGS SOME LINKS AS BROKEN WHEN THEY ARE NOT, PLEASE READ THE FAQ BELOW**
 
 == Installation ==
-1. Install the plugin from your website's plugin directory, or upload the plugin to your plugins folder. 
+1. Install the plugin from your website's plugin directory, or upload the plugin to your plugins folder.
 2. Activate it.
-3. Go to `Broken Link Notifier > Settings` in your admin menu.
-4. Update your notification method(s) and post types.
-5. Go to `Broken Link Notifier > Omitted Pages`, and add any pages that you don't want to scan, such as pages you know won't have any links on them. This will speed up the multi-scan option.
-5. Page load scans are enabled automatically, so it's recommended that you test it out by deliberately making some broken links on a test page and then visiting the page. The results should show up on the `Broken Link Notifier > Results` page, and notify you if you have enabled email, Discord, Slack or Microsoft Teams notifications. Reloading the page will not submit them twice. For testing, you should delete them from the results so they get reported again.
-6. It is suggested to run a Multi-Scan on each of your public-facing post types to quickly see if there are any broken links before others encounter them. Also to omit some links that will be reported as false positives. You can omit individual links quickly from the results, or you can go to `Broken Link Notifier > Omitted Links` to add a domain with a wildcard (*), which will omit all links starting with that domain. See screenshots for examples.
+3. The plugin works right away just by visiting pages with broken links on them — but you'll likely see some links flagged as broken that aren't actually broken, so it's worth spending a few minutes on setup first.
+4. Go to `Broken Link Notifier > Settings`:
+   * Disable notifications for now. By default you're emailed every time a visitor finds a newly-broken link; once flagged, a link won't notify you again unless it's removed from Results before you fix it. It's easiest to leave notifications off until you've finished the initial setup below, then turn them back on.
+   * Enable "Also Fetch Pages Remotely During Page Scan, Site Scan & Link Browser" to prepare for a one-time Site Scan.
+   * Under Post Types, keep Posts and Pages checked, and add any other post types that behave like posts or pages on your front end. Skip post types used only for internal data storage.
+   * Save with Ctrl+S or the Save button at the top of the page.
+5. Go to `Broken Link Notifier > Omitted Pages` and add any pages that don't need scanning — custom login pages, 404 pages, auto-generated archive pages, and similar. You can add a note to each explaining why it's omitted. To omit an entire section of your site at once, use a wildcard, e.g. `/category/*` or `/tag/*`.
+6. Go to `Broken Link Notifier > Site Scan` and run the two-step scan — this checks your whole site up front so you catch issues before your visitors do, and may take a while depending on site size:
+   * Click "Discover Links" and wait for it to finish.
+   * Click "Check for Broken Links" and wait for it to finish.
+   * If it finds broken links or warnings, click "View Results" (or go to `Broken Link Notifier > Results` directly).
+7. Review your results and omit anything that's a false positive — individually from Results or Link Browser, or by domain with a wildcard from `Broken Link Notifier > Omitted Links`.
+8. Once you've worked through your initial results, go back to Settings and re-enable notifications so you're alerted to anything new going forward.
 
 == Frequently Asked Questions == 
 = Will this plugin slow down my site? =
@@ -74,8 +85,11 @@ Yes, you can omit links from being checked for validity by using the "Omit" link
 = When I click on "Find On Page," I cannot find the link. Where is it? =
 Sometimes links are hidden with CSS or inside modals/popups. To find hidden links, go to the page and either open your developer console or view the page source and search for the link. This will show you where it is and which element to look in. Then you can edit the page accordingly. This is more advanced and may require some assistance, so feel free to reach out to us for help.
 
-= Why does the dev console show more links that what is scanned on the Multi-Scan? =
-The Multi-Scan link count does not include links that are filtered out from the pre-check.
+= What's the difference between Link Browser, Site Scan, and Multi-Scan? =
+Link Browser catalogs every link on your site in one searchable table, without checking their status until you ask it to. Site Scan builds on that same catalog and adds a second step that checks every link for broken links and warnings all at once. Multi-Scan is our original scanning method from earlier versions, kept available but disabled by default; developers can re-enable it with the `blnotifier_enable_legacy_multiscan` filter.
+
+= Why does the dev console show more links that what is scanned during a scan? =
+The link count during Site Scan or the legacy Multi-Scan does not include links that are filtered out from the pre-check.
 
 = What pre-checks are used to filter out broken links? =
 We skip links that start with `#` (anchor tags and JavaScript) or `?` (query strings), non-http url schemes (such as `mailto:`, `tel:`, `data:`, etc. ), and any links you have omitted.
@@ -83,30 +97,11 @@ We skip links that start with `#` (anchor tags and JavaScript) or `?` (query str
 = What can I do if I have the same broken link on a lot of pages? =
 There are other plugins such as [Better Search Replace by WP Engine](https://wordpress.org/plugins/better-search-replace/) that will quickly replace URLs on your entire site at once.
 
-= Why does my multi-scan page stop loading halfway down? =
-There is likely an issue with the content on that page causing a redirect. We cannot intercept all redirected content unfortunately. If that is the case, you can omit the page being scanned so you can continue scanning the entire page the next time you try.
+= Why does my Site Scan or Multi-Scan stop partway through? =
+There is likely an issue with the content on that page causing a redirect. We cannot intercept all redirected content unfortunately. If that is the case, you can omit the page being scanned so you can continue scanning the rest of your site the next time you try.
 
 = Are there hooks available for Developers? =
-Yes, there are plenty. The following hooks are available:
-* `blnotifier_html_link_sources` ( Array $sources ) — Filter where the links are found in the content's HTML
-* `blnotifier_omitted_pageload_post_types` ( Array $post_types ) — Filter the post types that you don't want to scan on page load
-* `blnotifier_omitted_multiscan_post_types` ( Array $post_types ) — Filter the post types that you don't want to allow for Multi-Scan option
-* `blnotifier_link_before_prechecks` ( String|Array|False $link ) — Filter the link before checking anything
-* `blnotifier_status` ( Array $status ) — Filter the status that is returned when checking a link for validity after all pre-checks are done
-* `blnotifier_http_request_args` ( Array $args, String $link ) — Filter the http request args
-* `blnotifier_remove_source_qs` ( Array $query_strings ) — Filter the query strings to remove from source url on page load scans
-* `blnotifier_url_schemes` ( Array $schemes ) — Filter the URL Schemes skipped during pre-checks
-* `blnotifier_suggested_offsite_checkers` ( Array $checkers ) — Filter the list of suggested offsite checkers on Multi-Scan page
-* `blnotifier_notify` ( Array $flagged, Int $flagged_count, Array $all_links, String $source_url ) — Action hook that fires when notifying you of new broken links and warning links that are found on page load
-* `blnotifier_email_emails` ( String|Array $emails, Array $flagged, String $source_url ) — Filter the emails that the email notifications are sent to
-* `blnotifier_email_subject` ( String $subject, Array $flagged, String $source_url ) — Filter the subject that the email notifications are sent with
-* `blnotifier_email_message` ( String $message, Array $flagged, String $source_url ) — Filter the message that the email notifications are sent with
-* `blnotifier_email_headers` ( Array $headers, Array $flagged, String $source_url ) — Filter the headers used in the email notifications
-* `blnotifier_discord_args` ( Array $args, Array $flagged, String $source_url ) — Filter the Discord webhook args
-* `blnotifier_slack_args` ( Array $args, Array $flagged, String $source_url ) — Filter the Slack webhook args
-* `blnotifier_msteams_args` ( Array $args, Array $flagged, String $source_url ) — Filter the Microsoft Teams webhook args
-* `blnotifier_strings_to_replace` ( Array $strings_to_replace ) — Filter the strings to replace on the link
-* `blnotifier_force_head_file_types` (Array $file_types, Boolean $docs_use_head) — Filter the list of file types that should force a HEAD request, with the $docs_use_head variable determining whether document types should be included
+Yes, there are plenty. You can visit our developer documentation here: https://pluginrx.com/docs/plugin/broken-link-notifier/
 
 = Where can I request features and get further support? =
 We recommend using our [website support forum](https://pluginrx.com/support/plugin/broken-link-notifier/) as the primary method for requesting features and getting help. You can also reach out via our [Discord support server](https://discord.gg/3HnzNEJVnR) or the [WordPress.org support forum](https://wordpress.org/support/plugin/broken-link-notifier/), but please note that WordPress.org doesn’t always notify us of new posts, so it’s not ideal for time-sensitive issues.
@@ -117,16 +112,40 @@ https://youtu.be/gM9Qy0HLplU
 
 == Screenshots ==
 1. Page load scan results on back-end
-2. Page load scan results on front-end in dev console
-3. Omitted links
-4. Omitted pages
-5. Detailed single page scan
-6. Multi-Scan running scans on multiple pages in WP List Tables
-7. Find broken links easily on front-end with a glowing animation and red border
-8. Settings
-9. Developer hooks on Help tab
+2. Page load scan results on front-end in dev console - enable in settings
+3. Find broken links easily on front-end with a glowing animation and red border
+4. Omitted Links
+5. Omitted Pages
+6. Page Scan
+7. Site Scan
+8. Link Browser
+9. Settings
 
 == Changelog ==
+= 2.0.0 =
+* Update: Complete visual redesign — new shared header, navigation, colors, and content containers to match the rest of the PluginRx plugin family, including inheriting theme colors from Admin Help Docs when installed
+* Update: Added a new Site Scan tab — a two-step scanner that discovers every link on your site, then checks them all for broken links and warnings, with live progress and a summary linking to Results
+* Update: Added a new Link Browser tab that scans and lists every link on the site, with filtering by internal/external and by link/image/file, search, pagination, and inline "Check Status" and "Show Me" actions
+* Update: Legacy Multi-Scan is now disabled by default in favor of Site Scan; developers can re-enable it with the `blnotifier_enable_legacy_multiscan` filter, or by enabling test mode from the Developer Debug Tools plugin
+* Update: Pages that appear to redirect are now automatically detected and omitted from future scans during Link Browser and Site Scan, with a note explaining why
+* Update: Results page rebuilt with AJAX — filter by status with clickable counts, bulk actions (Clear Results, Omit Links, Omit Sources), manual on-demand link verification, and no more page reloads
+* Update: Added quick-add tools to Omitted Links (autocomplete from discovered links) and Omitted Pages (browse by post type) so you no longer need to type or paste a URL from memory
+* Update: Added post-type/page browsing to Page Scan as an alternative to typing a URL directly
+* Update: Removed the Link Search tab — Link Browser's own search field covers the same need with more accurate results, including menu items
+* Update: Settings page reorganized into categorized sections, saves via AJAX with a dirty-state reminder and Ctrl+S support, and includes step-by-step setup accordions for Discord, Slack, and Microsoft Teams
+* Update: Added Download Settings, Upload Settings, and Reset All Settings tools to the Settings page
+* Update: Added an option to clear cached good links
+* Update: Removed the Export tab; export is now available directly from Results (exports whatever is currently filtered) and Link Browser (exports all discovered links, respecting filters and search)
+* Update: Omitted Links and Omitted Pages screens restyled to match the rest of the plugin, with search moved to the page header
+* Update: Added quick-add fields and autocomplete suggestions by title to the Page Scan search field
+* Update: Added an optional delay between requests during Link Browser and Site Scan scans, for sites needing to reduce server load
+* Update: Removed all help documentation since we have links to the Help Guide and Developer Docs on the website
+* Update: Added new developer filters — `blnotifier_link_type`, `blnotifier_link_kind`, `blnotifier_link_kind_image_extensions`, `blnotifier_link_kind_file_extensions`, `blnotifier_menu_location_label`, `blnotifier_header_footer_links`, `blnotifier_auto_omit_redirects`, `blnotifier_auto_omit_redirect_note`, `blnotifier_export_results_headers`, `blnotifier_export_link_browser_headers`, `blnotifier_export_results_rows`, `blnotifier_export_link_browser_rows`, `blnotifier_omit_quick_add_post_types`, `blnotifier_admin_menu_title`, and `blnotifier_notify_flagged`
+* Tweak: "Omit Page" action renamed to "Omit Source" for clarity
+* Update: Shortened the admin menu title to "Broken Links" and made it filterable via `blnotifier_admin_menu_title`
+* Update: Overhauled the front-end console log debugger with better styling, grouping, and more data
+* Update: Added a "What's New" overlay introducing major updates
+
 = 1.3.8 =
 * Tweak: Added "Broken for X days" note under the date on the Results page
 * Update: Added REST API with endpoints for retrieving and deleting results; enable in Settings and generate an API key to authenticate

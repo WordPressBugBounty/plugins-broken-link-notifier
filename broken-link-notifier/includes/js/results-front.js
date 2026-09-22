@@ -14,7 +14,7 @@ jQuery( $ => {
 
     // Only continue if a broken link is being searched
     if ( urlParams.has( 'blink' ) ) {
-        console.log( 'Looking for highlights; checking for broken links paused.' );
+        console.log( blnotifier_front_end.text.checking_paused );
         const blink = urlParams.get( 'blink' );
         $.each( elements, function( tag, attr ) {
             $( tag ).not( '#wpadminbar ' + tag ).each( function( index ) {
@@ -22,11 +22,11 @@ jQuery( $ => {
                 if ( link !== undefined && link.includes( blink ) ) {
                     $( this ).addClass( 'glowText' );
                     if ( $( this ).is( ':hidden' ) ) {
-                        var msg = 'It looks like one or more of the links are hidden. To find them, try searching for it in your browser\'s Developer console.';
+                        var msg = blnotifier_front_end.text.links_hidden;
                         console.log( msg );
                         alert( msg );
                     } else {
-                        console.log( 'The element should glow yellow if it is visible on the page. If you do not see it on the page, then it is hidden somewhere. Check any JavaScript elements, too. You can try searching for it in your browser\'s Developer console.' );
+                        console.log( blnotifier_front_end.text.glow_yellow );
                     }
                 }
             } )
@@ -40,8 +40,18 @@ jQuery( $ => {
 
         // Notice
         if ( blnotifier_front_end.show_in_console ) {
-            console.log( '%c Fetching links using the Broken Link Notifier Plugin... ', 'background: #2570AC; color: white' );
+            console.log( '%c🔗 ' + blnotifier_front_end.text.plugin_name + ' %c ' + blnotifier_front_end.text.fetching_links,
+                'background: #1D2327; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px 0 0 4px;',
+                'background: #f0f0f1; color: #1D2327; padding: 4px 10px; border-radius: 0 4px 4px 0;'
+            );
         }
+
+        // Show a progress message every 10 seconds while scanning. 
+        var scanTicker = setInterval( function() { 
+            if ( blnotifier_front_end.show_in_console ) { 
+                console.log( '%c🔗 ' + blnotifier_front_end.text.plugin_name + ' %c ' + blnotifier_front_end.text.still_scanning, 'background: #1D2327; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px 0 0 4px;', 'background: #f0f0f1; color: #1D2327; padding: 4px 10px; border-radius: 0 4px 4px 0;' ); 
+            } }, 10000 
+        );
 
         // Fetch the links
         var headerLinks = [];
@@ -66,21 +76,6 @@ jQuery( $ => {
             } )
         } );
 
-        // Console log
-        if ( blnotifier_front_end.show_in_console ) {
-            if ( blnotifier_front_end.scan_header ) {
-                console.log( '%c Header links found: ', 'background: #222; color: #bada55' );
-                console.log( headerLinks );
-            }
-            console.log( '%c Content links found: ', 'background: #222; color: #bada55' );
-            console.log( contentLinks );
-            if ( blnotifier_front_end.scan_header ) {
-                console.log( '%c Footer links found: ', 'background: #222; color: #bada55' );
-                console.log( footerLinks );
-            }
-            console.log( '%c Scanning for broken links... please wait. This may take a few minutes if there are a lot of links.', 'background: #2570AC; color: white' );
-        }
-
         // Nonce
         var nonce = blnotifier_front_end.nonce;
 
@@ -103,23 +98,42 @@ jQuery( $ => {
                 // Success
                 if ( response.type == 'success' ) {
                     if ( blnotifier_front_end.show_in_console ) {
+                        const brokenCount = response.results && response.results.broken ? Object.values( response.results.broken ).reduce( ( sum, arr ) => sum + arr.length, 0 ) : 0;
+                        const warningCount = response.results && response.results.warning ? Object.values( response.results.warning ).reduce( ( sum, arr ) => sum + arr.length, 0 ) : 0;
+                        const goodCount = response.results && response.results.good ? Object.values( response.results.good ).reduce( ( sum, arr ) => sum + arr.length, 0 ) : 0;
 
-                        // Console
-                        console.log( '%c Broken Link Scan Results: ', 'background: #2570AC; color: white' );
-                        if ( response.notify ) {
-                            console.log( '%c Bad links found: ', 'background: #222; color: #bada55' );
-                            console.error( response.notify );
-                        } else {
-                            console.info( '%c No broken links found. :)', 'background: #222; color: #bada55' );
+                        let statusLabel = '%c🔗 ' + blnotifier_front_end.text.plugin_name + ' — ' + blnotifier_front_end.text.scan_complete;
+                        const statusStyles = [
+                            'background: #1D2327; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px 0 0 4px;'
+                        ];
+
+                        if ( brokenCount > 0 ) {
+                            statusLabel += ` %c⚠ ${brokenCount} broken`;
+                            statusStyles.push( 'background: #dc3545; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px;' );
                         }
-                        if ( response.msg ) {
-                            console.log( `%c ${response.msg} `, 'background: #2570AC; color: white' );
+
+                        if ( warningCount > 0 ) {
+                            statusLabel += ` %c⚠ ${warningCount} warning${warningCount == 1 ? '' : 's'}`;
+                            statusStyles.push( 'background: #dba617; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px;' );
                         }
-                        if ( response.good_links ) {
-                            console.log( '%c Good links found: ', 'background: #222; color: #bada55' );
-                            console.log( response.good_links );
+
+                        if ( goodCount > 0 ) {
+                            statusLabel += ` %c✓ ${goodCount} good`;
+                            statusStyles.push( 'background: #008a20; color: #ffffff; font-weight: bold; padding: 4px 10px; border-radius: 4px;' );
                         }
-                        console.log( `%c ${response.timing} `, 'background: #2570AC; color: white' );
+
+                        console.log( statusLabel, ...statusStyles );
+
+                        console.group( '%c' + blnotifier_front_end.text.details, 'color: #667085; font-style: italic;' );
+                        console.log( {
+                            scanned: response.scanned,
+                            results: response.results,
+                            warnings_enabled: response.warnings_enabled ? blnotifier_front_end.text.warnings_enabled : blnotifier_front_end.text.warnings_disabled,
+                            status_codes: response.status_codes || {},
+                            message: response.msg || null,
+                            timing: response.timing
+                        } );
+                        console.groupEnd();
                     }
 
                     // Highlight all on page
@@ -140,9 +154,13 @@ jQuery( $ => {
 
                 // Failure
                 } else if ( response.type == 'error' ) {
-                    var errorMsg = response.msg ? response.msg : 'Unknown error occurred.';
-                    console.error( 'Scan failed: ' + errorMsg );
+                    var errorMsg = response.msg ? response.msg : blnotifier_front_end.text.unknown_error;
+                    console.error( blnotifier_front_end.text.scan_failed + ': ' + errorMsg );
                 }
+            },
+            complete: function() { 
+                // Stop the progress ticker when the scan finishes.
+                clearInterval( scanTicker );
             }
         } )
     }

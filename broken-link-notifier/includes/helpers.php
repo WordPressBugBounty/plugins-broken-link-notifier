@@ -15,6 +15,24 @@ if ( !defined( 'ABSPATH' ) ) {
 class BLNOTIFIER_HELPERS {
 
     /**
+     * Check if we are in test mode, either our own or DDT's
+     *
+     * @return boolean
+     */
+    public function is_test_mode() {
+        if ( get_option( 'blnotifier_test_mode' ) !== false ) {
+            return filter_var( get_option( 'blnotifier_test_mode' ), FILTER_VALIDATE_BOOLEAN );
+        }
+
+        if ( get_option( 'ddtt_test_mode' ) !== false ) {
+            return filter_var( get_option( 'ddtt_test_mode' ), FILTER_VALIDATE_BOOLEAN );
+        }
+
+        return false;
+    } // End is_test_mode()
+
+
+    /**
      * Check if the current user can manage Broken Link Notifier.
      *
      * @return bool True if user has permission, false otherwise.
@@ -69,13 +87,25 @@ class BLNOTIFIER_HELPERS {
 
 
     /**
-     * Check if we are pausing results verification
+     * Get the true factory-default broken/warning status codes, ignoring whatever
+     * is currently saved. Still respects the blnotifier_bad_status_codes and
+     * blnotifier_warning_status_codes filters, since those represent the
+     * developer-intended defaults, not the user's saved customizations.
      *
-     * @return boolean
+     * @return array{broken: array, warning: array}
      */
-    public function is_results_verification_paused() {
-        return filter_var( get_option( 'blnotifier_pause_results_verification' ), FILTER_VALIDATE_BOOLEAN );
-    } // End is_results_verification_paused()
+    public function get_default_status_codes() {
+        $default_broken_codes = [ 0, 666, 308, 400, 404, 408 ];
+        $default_warning_codes = [ 0, 413 ];
+
+        $broken = filter_var_array( apply_filters( 'blnotifier_bad_status_codes', $default_broken_codes ), FILTER_SANITIZE_NUMBER_INT );
+        $warning = filter_var_array( apply_filters( 'blnotifier_warning_status_codes', $default_warning_codes ), FILTER_SANITIZE_NUMBER_INT );
+
+        return [
+            'broken'  => array_map( 'strval', $broken ),
+            'warning' => array_map( 'strval', $warning ),
+        ];
+    } // End get_default_status_codes()
 
     
     /**
@@ -84,15 +114,13 @@ class BLNOTIFIER_HELPERS {
      * @return array
      */
     public function get_bad_status_codes() {
-        $default_codes = [ 0, 666, 308, 400, 404, 408 ];
+        $defaults = $this->get_default_status_codes();
+        $default_codes = array_map( 'intval', $defaults[ 'broken' ] );
 
         $types = filter_var_array( get_option( 'blnotifier_status_codes', [] ), FILTER_SANITIZE_FULL_SPECIAL_CHARS );
         if ( empty( $types ) ) {
-            $old_filtered_array = filter_var_array( apply_filters( 'blnotifier_bad_status_codes', $default_codes ), FILTER_SANITIZE_NUMBER_INT );
-            if ( !empty( $old_filtered_array ) ) {
-                foreach ( $old_filtered_array as $code ) {
-                    $types[ $code ] = 'broken';
-                }
+            foreach ( $default_codes as $code ) {
+                $types[ $code ] = 'broken';
             }
         }
 
@@ -117,15 +145,13 @@ class BLNOTIFIER_HELPERS {
      * @return array
      */
     public function get_warning_status_codes( $force_enable = false ) {
-        $default_codes = [ 0, 413 ];
+        $defaults = $this->get_default_status_codes();
+        $default_codes = array_map( 'intval', $defaults[ 'warning' ] );
 
         $types = filter_var_array( get_option( 'blnotifier_status_codes', [] ), FILTER_SANITIZE_FULL_SPECIAL_CHARS );
         if ( empty( $types ) ) {
-            $old_filtered_array = filter_var_array( apply_filters( 'blnotifier_warning_status_codes', $default_codes ), FILTER_SANITIZE_NUMBER_INT );
-            if ( !empty( $old_filtered_array ) ) {
-                foreach ( $old_filtered_array as $code ) {
-                    $types[ $code ] = 'warning';
-                }
+            foreach ( $default_codes as $code ) {
+                $types[ $code ] = 'warning';
             }
         }
 
@@ -399,18 +425,20 @@ class BLNOTIFIER_HELPERS {
     /**
      * Count broken links in results
      *
-     * @return void
+     * @return int
      */
     public function count_broken_links() {
         global $wpdb;
         $table = $wpdb->prefix . 'blnotifier_results';
 
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is a hardcoded prefix + fixed name, not user input; type value is bound via prepare().
         $count = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$table} WHERE type = %s",
                 'broken'
             )
         );
+        // phpcs:enable
 
         return absint( $count );
     } // End count_broken_links()
@@ -518,304 +546,12 @@ class BLNOTIFIER_HELPERS {
      * Mark a select option as selected
      *
      * @param string $option
-     * @param string $the_key
+     * @param string $value
      * @return string
      */
     public function is_selected( $option, $value ) {
         return ( $option == $value ) ? ' selected' : '';
     } // End is_selected()
-
-
-    /**
-     * Add a WP Plugin Info Card
-     *
-     * @param string $slug
-     * @return string
-     */
-    public function plugin_card( $slug ) {
-        // Set the args
-        $args = [ 
-            'slug'                => $slug, 
-            'fields'              => [
-                'last_updated'    => true,
-                'tested'          => true,
-                'active_installs' => true
-            ]
-        ];
-        
-        // Fetch the plugin info from the wp repository
-        $response = wp_remote_post(
-            'http://api.wordpress.org/plugins/info/1.0/',
-            [
-                'body'        => [
-                    'action'  => 'plugin_information',
-                    'request' => serialize( (object)$args )
-                ]
-            ]
-        );
-
-        // If there is no error, continue
-        if ( !is_wp_error( $response ) ) {
-
-            // Unserialize
-            $returned_object = unserialize( wp_remote_retrieve_body( $response ) );   
-            if ( $returned_object ) {
-                
-                // Last Updated
-                $last_updated = $returned_object->last_updated;
-                $last_updated = $this->time_elapsed_string( $last_updated );
-
-                // Compatibility
-                $compatibility = $returned_object->tested;
-
-                // Add incompatibility class
-                global $wp_version;
-                if ( $compatibility == $wp_version ) {
-                    $is_compatible = '<span class="compatibility-compatible"><strong>Compatible</strong> with your version of WordPress</span>';
-                } else {
-                    $is_compatible = '<span class="compatibility-untested">Untested with your version of WordPress</span>';
-                }
-
-                // Get all the installed plugins
-                $plugins = get_plugins();
-
-                // Check if this plugin is installed
-                $is_installed = false;
-                foreach ( $plugins as $key => $plugin ) {
-                    if ( $plugin[ 'TextDomain' ] == $slug ) {
-                        $is_installed = $key;
-                    }
-                }
-
-                // Check if it is also active
-                $is_active = false;
-                if ( $is_installed && is_plugin_active( $is_installed ) ) {
-                    $is_active = true;
-                }
-
-                // Check if the plugin is already active
-                if ( $is_active ) {
-                    $install_link = 'role="link" aria-disabled="true"';
-                    $php_notice = '';
-                    $install_text = 'Active';
-
-                // Check if the plugin is installed but not active
-                } elseif ( $is_installed ) {
-                    $install_link = 'href="'.admin_url( 'plugins.php' ).'"';
-                    $php_notice = '';
-                    $install_text = 'Go to Activate';
-
-                // Check for php requirement
-                } elseif ( phpversion() < $returned_object->requires_php ) {
-                    $install_link = 'role="link" aria-disabled="true"';
-                    $php_notice = '<div class="php-incompatible"><em><strong>Requires PHP Version '.$returned_object->requires_php.'</strong> — You are currently on Version '.phpversion().'</em></div>';
-                    $install_text = 'Incompatible';
-
-                // If we're good to go, add the link
-                } else {
-
-                    // Get the admin url for the plugin install page
-                    if ( is_multisite() ) {
-                        $admin_url = network_admin_url( 'plugin-install.php' );
-                    } else {
-                        $admin_url = admin_url( 'plugin-install.php' );
-                    }
-
-                    // Vars
-                    $install_link = 'href="'.$admin_url.'?s='.esc_attr( $returned_object->name ).'&tab=search&type=term"';
-                    $php_notice = '';
-                    $install_text = 'Get Now';
-                }
-                
-                // Short Description
-                $pos = strpos( $returned_object->sections[ 'description' ], '.');
-                $desc = substr( $returned_object->sections[ 'description' ], 0, $pos + 1 );
-
-                // Rating
-                $rating = $this->get_five_point_rating( 
-                    $returned_object->ratings[1], 
-                    $returned_object->ratings[2], 
-                    $returned_object->ratings[3], 
-                    $returned_object->ratings[4], 
-                    $returned_object->ratings[5] 
-                );
-
-                // Link guts
-                $link_guts = 'href="https://wordpress.org/plugins/'.esc_attr( $slug ).'/" target="_blank" aria-label="More information about '.$returned_object->name.' '.$returned_object->version.'" data-title="'.$returned_object->name.' '.$returned_object->version.'"';
-                ?>
-                <style>
-                .plugin-card {
-                    float: none !important;
-                    margin-left: 0 !important;
-                }
-                .plugin-card .ws_stars {
-                    display: inline-block;
-                }
-                .php-incompatible {
-                    padding: 12px 20px;
-                    background-color: #D1231B;
-                    color: #FFFFFF;
-                    border-top: 1px solid #dcdcde;
-                    overflow: hidden;
-                }
-                #wpbody-content .plugin-card .plugin-action-buttons a.install-now[aria-disabled="true"] {
-                    color: #CBB8AD !important;
-                    border-color: #CBB8AD !important;
-                }
-                .plugin-action-buttons {
-                    list-style: none !important;   
-                }
-                </style>
-                <div class="plugin-card plugin-card-<?php echo esc_attr( $slug ); ?>">
-                    <div class="plugin-card-top">
-                        <div class="name column-name">
-                            <h3>
-                                <a <?php echo wp_kses_post( $link_guts ); ?>>
-                                    <?php echo esc_html( $returned_object->name ); ?> 
-                                    <img src="<?php echo esc_url( BLNOTIFIER_PLUGIN_IMG_PATH ).esc_attr( $slug  ); ?>.png" class="plugin-icon" alt="<?php echo esc_html( $returned_object->name ); ?> Thumbnail">
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="action-links">
-                            <ul class="plugin-action-buttons">
-                                <li><a class="install-now button" data-slug="<?php echo esc_attr( $slug ); ?>" <?php echo wp_kses_post( $install_link ); ?> aria-label="<?php echo esc_attr( $install_text );?>" data-name="<?php echo esc_html( $returned_object->name ); ?> <?php echo esc_html( $returned_object->version ); ?>"><?php echo esc_attr( $install_text );?></a></li>
-                                <li><a <?php echo wp_kses_post( $link_guts ); ?>>More Details</a></li>
-                            </ul>
-                        </div>
-                        <div class="desc column-description">
-                            <p><?php echo wp_kses_post( $desc ); ?></p>
-                            <p class="authors"> <cite>By <?php echo wp_kses_post( $returned_object->author ); ?></cite></p>
-                        </div>
-                    </div>
-                    <div class="plugin-card-bottom">
-                        <div class="vers column-rating">
-                            <div class="star-rating"><span class="screen-reader-text"><?php echo esc_attr( abs( $rating ) ); ?> star rating based on <?php echo absint( $returned_object->num_ratings ); ?> ratings</span>
-                                <?php echo wp_kses_post( $this->convert_to_stars( abs( $rating ) ) ); ?>
-                            </div>					
-                            <span class="num-ratings" aria-hidden="true">(<?php echo absint( $returned_object->num_ratings ); ?>)</span>
-                        </div>
-                        <div class="column-updated">
-                            <strong>Last Updated:</strong> <?php echo esc_html( $last_updated ); ?>
-                        </div>
-                        <div class="column-downloaded" data-downloads="<?php echo esc_html( number_format( $returned_object->downloaded ) ); ?>">
-                            <?php echo esc_html( number_format( $returned_object->active_installs ) ); ?>+ Active Installs
-                        </div>
-                        <div class="column-compatibility">
-                            <?php echo wp_kses_post( $is_compatible ); ?>				
-                        </div>
-                    </div>
-                    <?php echo wp_kses_post( $php_notice ); ?>
-                </div>
-                <?php
-            }
-        }
-    } // End plugin_card()
-
-
-    /**
-     * Convert time to elapsed string
-     *
-     * @param [type] $datetime
-     * @param boolean $full
-     * @return string
-     */
-    public function time_elapsed_string( $datetime, $full = false ) {
-        $now = new DateTime;
-        $ago = new DateTime( $datetime );
-        $diff = $now->diff( $ago );
-
-        $diff->w = floor( $diff->d / 7);
-        $diff->d -= $diff->w * 7;
-
-        $string = array(
-            'y' => 'year',
-            'm' => 'month',
-            'w' => 'week',
-            'd' => 'day',
-            'h' => 'hour',
-            'i' => 'minute',
-            's' => 'second',
-        );
-        foreach ( $string as $k => &$v ) {
-            if ( $diff->$k ) {
-                $v = $diff->$k . ' ' . $v . ( $diff->$k > 1 ? 's' : '' );
-            } else {
-                unset( $string[$k] );
-            }
-        }
-
-        if ( !$full ) $string = array_slice( $string, 0, 1 );
-        return $string ? implode( ', ', $string ) . ' ago' : 'just now';
-    } // End time_elapsed_string()
-
-
-    /**
-     * Convert 5-point rating to plugin card stars
-     *
-     * @param int|float $r
-     * @return string
-     */
-    public function convert_to_stars( $r ) {
-        $f = '<div class="star star-full" aria-hidden="true"></div>';
-        $h = '<div class="star star-half" aria-hidden="true"></div>';
-        $e = '<div class="star star-empty" aria-hidden="true"></div>';
-        
-        $stars = $e.$e.$e.$e.$e;
-        if ( $r > 4.74 ) {
-            $stars = $f.$f.$f.$f.$f;
-        } elseif ( $r > 4.24 && $r < 4.75 ) {
-            $stars = $f.$f.$f.$f.$h;
-        } elseif ( $r > 3.74 && $r < 4.25 ) {
-            $stars = $f.$f.$f.$f.$e;
-        } elseif ( $r > 3.24 && $r < 3.75 ) {
-            $stars = $f.$f.$f.$h.$e;
-        } elseif ( $r > 2.74 && $r < 3.25 ) {
-            $stars = $f.$f.$f.$e.$e;
-        } elseif ( $r > 2.24 && $r < 2.75 ) {
-            $stars = $f.$f.$h.$e.$e;
-        } elseif ( $r > 1.74 && $r < 2.25 ) {
-            $stars = $f.$f.$e.$e.$e;
-        } elseif ( $r > 1.24 && $r < 1.75 ) {
-            $stars = $f.$h.$e.$e.$e;
-        } elseif ( $r > 0.74 && $r < 1.25 ) {
-            $stars = $f.$e.$e.$e.$e;
-        } elseif ( $r > 0.24 && $r < 0.75 ) {
-            $stars = $h.$e.$e.$e.$e;
-        } else {
-            $stars = $stars;
-        }
-
-        return '<div class="ws_stars">'.$stars.'</div>';
-    } // End convert_to_stars()
-
-
-    /**
-     * Get 5-point rating from 5 values
-     *
-     * @param int|float $r1
-     * @param int|float $r2
-     * @param int|float $r3
-     * @param int|float $r4
-     * @param int|float $r5
-     * @return float
-     */
-    public function get_five_point_rating ( $r1, $r2, $r3, $r4, $r5 ) {
-        // Calculate them on a 5-point rating system
-        $r5b = round( $r5 * 5, 0 );
-        $r4b = round( $r4 * 4, 0 );
-        $r3b = round( $r3 * 3, 0 );
-        $r2b = round( $r2 * 2, 0 );
-        $r1b = $r1;
-        
-        $total = round( $r1 + $r2 + $r3 + $r4 + $r5, 0 );
-        if ( $total == 0 ) {
-            $r = 0;
-        } else {
-            $r = round( ( $r1b + $r2b + $r3b + $r4b + $r5b ) / $total, 2 );
-        }
-
-        return $r;
-    } // End get_five_point_rating()
 
 
     /**
@@ -976,6 +712,11 @@ class BLNOTIFIER_HELPERS {
                         // Get the link in the href attribute.
                         $linkHref = $this->sanitize_link( $link->getAttribute( $html_link_source ) );
     
+                        // Skip inline data URIs (e.g. embedded base64 SVGs/images) - not real, checkable links
+                        if ( stripos( $linkHref, 'data:' ) === 0 ) {
+                            continue;
+                        }
+    
                         // Add the link to our array.
                         $matches[] = $linkHref;
                     }
@@ -984,7 +725,7 @@ class BLNOTIFIER_HELPERS {
         }
     
         // Return
-        return $matches;
+        return apply_filters( 'blnotifier_extracted_links', $matches, $content );
     } // End extract_links()
 
 
@@ -1008,356 +749,360 @@ class BLNOTIFIER_HELPERS {
         // Possible Codes
         return [
             0   => [
-                'msg'  => 'No Response',
-                'desc' => 'The client did not receive any response from the server, often due to a connection issue.',
+                'msg'  => __( 'No Response', 'broken-link-notifier' ),
+                'desc' => __( 'The client did not receive any response from the server, often due to a connection issue.', 'broken-link-notifier' ),
                 'official' => false
             ],
             100 => [
-                'msg'  => 'Continue',
-                'desc' => 'This interim response indicates that the client should continue the request or ignore the response if the request is already finished.',
+                'msg'  => __( 'Continue', 'broken-link-notifier' ),
+                'desc' => __( 'This interim response indicates that the client should continue the request or ignore the response if the request is already finished.', 'broken-link-notifier' ),
             ],
             103 => [
-                'msg'  => 'Early Hints',
-                'desc' => 'This status code is primarily intended to be used with the <code>Link</code> header, letting the user agent start preloading resources while the server prepares a response or preconnect to an origin from which the page will need resources.',
+                'msg'  => __( 'Early Hints', 'broken-link-notifier' ),
+                'desc' => __( 'This status code is primarily intended to be used with the <code>Link</code> header, letting the user agent start preloading resources while the server prepares a response or preconnect to an origin from which the page will need resources.', 'broken-link-notifier' ),
             ],
             200 => [
-                'msg'  => 'OK',
-                'desc' => 'The request succeeded. The result and meaning of "success" depends on the HTTP method. <code>GET</code>: The resource has been fetched and transmitted in the message body. <code>HEAD</code>: Representation headers are included in the response without any message body.',
+                'msg'  => __( 'OK', 'broken-link-notifier' ),
+                'desc' => __( 'The request succeeded. The result and meaning of "success" depends on the HTTP method. <code>GET</code>: The resource has been fetched and transmitted in the message body. <code>HEAD</code>: Representation headers are included in the response without any message body.', 'broken-link-notifier' ),
             ],
             202 => [
-                'msg'  => 'Accepted',
-                'desc' => 'The request has been received but not yet acted upon. It is noncommittal, since there is no way in HTTP to later send an asynchronous response indicating the outcome of the request. It is intended for cases where another process or server handles the request, or for batch processing.',
+                'msg'  => __( 'Accepted', 'broken-link-notifier' ),
+                'desc' => __( 'The request has been received but not yet acted upon. It is noncommittal, since there is no way in HTTP to later send an asynchronous response indicating the outcome of the request. It is intended for cases where another process or server handles the request, or for batch processing.', 'broken-link-notifier' ),
             ],
             203 => [
-                'msg'  => 'Non-Authoritative Information',
-                'desc' => 'This response code means the returned metadata is not exactly the same as is available from the origin server, but is collected from a local or a third-party copy. This is mostly used for mirrors or backups of another resource. Except for that specific case, the <code>200 OK</code> response is preferred to this status.',
+                'msg'  => __( 'Non-Authoritative Information', 'broken-link-notifier' ),
+                'desc' => __( 'This response code means the returned metadata is not exactly the same as is available from the origin server, but is collected from a local or a third-party copy. This is mostly used for mirrors or backups of another resource. Except for that specific case, the <code>200 OK</code> response is preferred to this status.', 'broken-link-notifier' ),
             ],
             204 => [
-                'msg'  => 'No Content',
-                'desc' => 'There is no content to send for this request, but the headers are useful. The user agent may update its cached headers for this resource with the new ones.',
+                'msg'  => __( 'No Content', 'broken-link-notifier' ),
+                'desc' => __( 'There is no content to send for this request, but the headers are useful. The user agent may update its cached headers for this resource with the new ones.', 'broken-link-notifier' ),
             ],
             207 => [
-                'msg'  => 'Multi-Status',
-                'desc' => 'Conveys information about multiple resources, for situations where multiple status codes might be appropriate.',
+                'msg'  => __( 'Multi-Status', 'broken-link-notifier' ),
+                'desc' => __( 'Conveys information about multiple resources, for situations where multiple status codes might be appropriate.', 'broken-link-notifier' ),
             ],
             208 => [
-                'msg'  => 'Already Reported',
-                'desc' => 'Used inside a <code>' . htmlentities( '<dav:propstat>' ) . '</code> response element to avoid repeatedly enumerating the internal members of multiple bindings to the same collection.',
+                'msg'  => __( 'Already Reported', 'broken-link-notifier' ),
+                'desc' => sprintf(
+                    /* translators: %s: the literal <dav:propstat> tag, HTML-encoded for display */
+                    __( 'Used inside a <code>%s</code> response element to avoid repeatedly enumerating the internal members of multiple bindings to the same collection.', 'broken-link-notifier' ),
+                    htmlentities( '<dav:propstat>' )
+                ),
             ],
             218 => [
-                'msg'  => 'This is fine',
-                'desc' => 'Used by Apache Web Server.',
+                'msg'  => __( 'This is fine', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Apache Web Server.', 'broken-link-notifier' ),
                 'official' => false
             ],
             226 => [
-                'msg'  => 'IM Used',
-                'desc' => 'The server has fulfilled a <code>GET</code> request for the resource, and the response is a representation of the result of one or more instance-manipulations applied to the current instance.',
+                'msg'  => __( 'IM Used', 'broken-link-notifier' ),
+                'desc' => __( 'The server has fulfilled a <code>GET</code> request for the resource, and the response is a representation of the result of one or more instance-manipulations applied to the current instance.', 'broken-link-notifier' ),
             ],
             300 => [
-                'msg'  => 'Multiple Choices',
-                'desc' => 'In agent-driven content negotiation, the request has more than one possible response and the user agent or user should choose one of them. There is no standardized way for clients to automatically choose one of the responses, so this is rarely used.',
+                'msg'  => __( 'Multiple Choices', 'broken-link-notifier' ),
+                'desc' => __( 'In agent-driven content negotiation, the request has more than one possible response and the user agent or user should choose one of them. There is no standardized way for clients to automatically choose one of the responses, so this is rarely used.', 'broken-link-notifier' ),
             ],
             301 => [
-                'msg'  => 'Redirected: Moved Permanently',
-                'desc' => 'The URL of the requested resource has been changed permanently. The new URL is given in the response.',
+                'msg'  => __( 'Redirected: Moved Permanently', 'broken-link-notifier' ),
+                'desc' => __( 'The URL of the requested resource has been changed permanently. The new URL is given in the response.', 'broken-link-notifier' ),
             ],
             302 => [
-                'msg'  => 'Redirected: Found',
-                'desc' => 'This response code means that the URI of requested resource has been changed temporarily. Further changes in the URI might be made in the future, so the same URI should be used by the client in future requests.',
+                'msg'  => __( 'Redirected: Found', 'broken-link-notifier' ),
+                'desc' => __( 'This response code means that the URI of requested resource has been changed temporarily. Further changes in the URI might be made in the future, so the same URI should be used by the client in future requests.', 'broken-link-notifier' ),
             ],
             303 => [
-                'msg'  => 'See Other',
-                'desc' => 'The server sent this response to direct the client to get the requested resource at another URI with a GET request.',
+                'msg'  => __( 'See Other', 'broken-link-notifier' ),
+                'desc' => __( 'The server sent this response to direct the client to get the requested resource at another URI with a GET request.', 'broken-link-notifier' ),
             ],
             304 => [
-                'msg'  => 'Not Modified',
-                'desc' => 'This is used for caching purposes. It tells the client that the response has not been modified, so the client can continue to use the same cached version of the response.',
+                'msg'  => __( 'Not Modified', 'broken-link-notifier' ),
+                'desc' => __( 'This is used for caching purposes. It tells the client that the response has not been modified, so the client can continue to use the same cached version of the response.', 'broken-link-notifier' ),
             ],
             305 => [
-                'msg'  => 'Use Proxy',
-                'desc' => 'Defined in a previous version of the HTTP specification to indicate that a requested response must be accessed by a proxy. It has been deprecated due to security concerns regarding in-band configuration of a proxy.',
+                'msg'  => __( 'Use Proxy', 'broken-link-notifier' ),
+                'desc' => __( 'Defined in a previous version of the HTTP specification to indicate that a requested response must be accessed by a proxy. It has been deprecated due to security concerns regarding in-band configuration of a proxy.', 'broken-link-notifier' ),
             ],
             306 => [
-                'msg'  => 'Switch Proxy',
-                'desc' => 'This response code is no longer used; but is reserved. It was used in a previous version of the HTTP/1.1 specification.',
+                'msg'  => __( 'Switch Proxy', 'broken-link-notifier' ),
+                'desc' => __( 'This response code is no longer used; but is reserved. It was used in a previous version of the HTTP/1.1 specification.', 'broken-link-notifier' ),
             ],
             307 => [
-                'msg'  => 'Temporary Redirect',
-                'desc' => 'The server sends this response to direct the client to get the requested resource at another URI with the same method that was used in the prior request. This has the same semantics as the 302 Found response code, with the exception that the user agent must not change the HTTP method used: if a <code>GET</code> was used in the first request, a <code>GET</code> must be used in the redirected request.',
+                'msg'  => __( 'Temporary Redirect', 'broken-link-notifier' ),
+                'desc' => __( 'The server sends this response to direct the client to get the requested resource at another URI with the same method that was used in the prior request. This has the same semantics as the 302 Found response code, with the exception that the user agent must not change the HTTP method used: if a <code>GET</code> was used in the first request, a <code>GET</code> must be used in the redirected request.', 'broken-link-notifier' ),
             ],
             308 => [
-                'msg'  => 'Permanent Redirect',
-                'desc' => 'This means that the resource is now permanently located at another URI, specified by the Location response header. This has the same semantics as the 301 Moved Permanently HTTP response code, with the exception that the user agent must not change the HTTP method used: if a <code>GET</code> was used in the first request, a <code>GET</code> must be used in the second request.',
+                'msg'  => __( 'Permanent Redirect', 'broken-link-notifier' ),
+                'desc' => __( 'This means that the resource is now permanently located at another URI, specified by the Location response header. This has the same semantics as the 301 Moved Permanently HTTP response code, with the exception that the user agent must not change the HTTP method used: if a <code>GET</code> was used in the first request, a <code>GET</code> must be used in the second request.', 'broken-link-notifier' ),
             ],
             400 => [
-                'msg'  => 'Bad Request',
-                'desc' => 'The server cannot or will not process the request due to something that is perceived to be a client error (e.g., malformed request syntax, invalid request message framing, or deceptive request routing).',
+                'msg'  => __( 'Bad Request', 'broken-link-notifier' ),
+                'desc' => __( 'The server cannot or will not process the request due to something that is perceived to be a client error (e.g., malformed request syntax, invalid request message framing, or deceptive request routing).', 'broken-link-notifier' ),
             ],
             401 => [
-                'msg'  => 'Unauthorized',
-                'desc' => 'Although the HTTP standard specifies "unauthorized", semantically this response means "unauthenticated". That is, the client must authenticate itself to get the requested response.',
+                'msg'  => __( 'Unauthorized', 'broken-link-notifier' ),
+                'desc' => __( 'Although the HTTP standard specifies "unauthorized", semantically this response means "unauthenticated". That is, the client must authenticate itself to get the requested response.', 'broken-link-notifier' ),
             ],
             402 => [
-                'msg'  => 'Payment Required',
-                'desc' => 'The initial purpose of this code was for digital payment systems, however this status code is rarely used and no standard convention exists.',
+                'msg'  => __( 'Payment Required', 'broken-link-notifier' ),
+                'desc' => __( 'The initial purpose of this code was for digital payment systems, however this status code is rarely used and no standard convention exists.', 'broken-link-notifier' ),
             ],
             403 => [
-                'msg'  => 'Forbidden or Unsecure',
-                'desc' => 'The client does not have access rights to the content; that is, it is unauthorized, so the server is refusing to give the requested resource. Unlike <code>401 Unauthorized</code>, the client\'s identity is known to the server.',
+                'msg'  => __( 'Forbidden or Unsecure', 'broken-link-notifier' ),
+                'desc' => __( 'The client does not have access rights to the content; that is, it is unauthorized, so the server is refusing to give the requested resource. Unlike <code>401 Unauthorized</code>, the client\'s identity is known to the server.', 'broken-link-notifier' ),
             ],
             404 => [
-                'msg'  => 'Not Found',
-                'desc' => 'The server cannot find the requested resource. In the browser, this means the URL is not recognized. In an API, this can also mean that the endpoint is valid but the resource itself does not exist. Servers may also send this response instead of <code>403 Forbidden</code> to hide the existence of a resource from an unauthorized client. This response code is probably the most well known due to its frequent occurrence on the web.',
+                'msg'  => __( 'Not Found', 'broken-link-notifier' ),
+                'desc' => __( 'The server cannot find the requested resource. In the browser, this means the URL is not recognized. In an API, this can also mean that the endpoint is valid but the resource itself does not exist. Servers may also send this response instead of <code>403 Forbidden</code> to hide the existence of a resource from an unauthorized client. This response code is probably the most well known due to its frequent occurrence on the web.', 'broken-link-notifier' ),
             ],
             405 => [
-                'msg'  => 'Method Not Allowed',
-                'desc' => 'The request method is known by the server but is not supported by the target resource.',
+                'msg'  => __( 'Method Not Allowed', 'broken-link-notifier' ),
+                'desc' => __( 'The request method is known by the server but is not supported by the target resource.', 'broken-link-notifier' ),
             ],
             406 => [
-                'msg'  => 'Not Acceptable',
-                'desc' => 'This response is sent when the web server, after performing server-driven content negotiation, doesn\'t find any content that conforms to the criteria given by the user agent.',
+                'msg'  => __( 'Not Acceptable', 'broken-link-notifier' ),
+                'desc' => __( 'This response is sent when the web server, after performing server-driven content negotiation, doesn\'t find any content that conforms to the criteria given by the user agent.', 'broken-link-notifier' ),
             ],
             407 => [
-                'msg'  => 'Proxy Authentication Required',
-                'desc' => 'This is similar to <code>401 Unauthorized</code> but authentication is needed to be done by a proxy.',
+                'msg'  => __( 'Proxy Authentication Required', 'broken-link-notifier' ),
+                'desc' => __( 'This is similar to <code>401 Unauthorized</code> but authentication is needed to be done by a proxy.', 'broken-link-notifier' ),
             ],
             408 => [
-                'msg'  => 'Request Timeout',
-                'desc' => 'This response is sent on an idle connection by some servers, even without any previous request by the client. It means that the server would like to shut down this unused connection. This response is used much more since some browsers use HTTP pre-connection mechanisms to speed up browsing. Some servers may shut down a connection without sending this message.',
+                'msg'  => __( 'Request Timeout', 'broken-link-notifier' ),
+                'desc' => __( 'This response is sent on an idle connection by some servers, even without any previous request by the client. It means that the server would like to shut down this unused connection. This response is used much more since some browsers use HTTP pre-connection mechanisms to speed up browsing. Some servers may shut down a connection without sending this message.', 'broken-link-notifier' ),
             ],
             409 => [
-                'msg'  => 'Conflict',
-                'desc' => 'This response is sent when a request conflicts with the current state of the server. In WebDAV remote web authoring, <code>409</code> responses are errors sent to the client so that a user might be able to resolve a conflict and resubmit the request.',
+                'msg'  => __( 'Conflict', 'broken-link-notifier' ),
+                'desc' => __( 'This response is sent when a request conflicts with the current state of the server. In WebDAV remote web authoring, <code>409</code> responses are errors sent to the client so that a user might be able to resolve a conflict and resubmit the request.', 'broken-link-notifier' ),
             ],
             410 => [
-                'msg'  => 'Gone',
-                'desc' => 'This response is sent when the requested content has been permanently deleted from server, with no forwarding address. Clients are expected to remove their caches and links to the resource. The HTTP specification intends this status code to be used for "limited-time, promotional services". APIs should not feel compelled to indicate resources that have been deleted with this status code.',
+                'msg'  => __( 'Gone', 'broken-link-notifier' ),
+                'desc' => __( 'This response is sent when the requested content has been permanently deleted from server, with no forwarding address. Clients are expected to remove their caches and links to the resource. The HTTP specification intends this status code to be used for "limited-time, promotional services". APIs should not feel compelled to indicate resources that have been deleted with this status code.', 'broken-link-notifier' ),
             ],
             411 => [
-                'msg'  => 'Length Required',
-                'desc' => 'Server rejected the request because the Content-Length header field is not defined and the server requires it.',
+                'msg'  => __( 'Length Required', 'broken-link-notifier' ),
+                'desc' => __( 'Server rejected the request because the Content-Length header field is not defined and the server requires it.', 'broken-link-notifier' ),
             ],
             412 => [
-                'msg'  => 'Precondition Failed',
-                'desc' => 'In conditional requests, the client has indicated preconditions in its headers which the server does not meet.',
+                'msg'  => __( 'Precondition Failed', 'broken-link-notifier' ),
+                'desc' => __( 'In conditional requests, the client has indicated preconditions in its headers which the server does not meet.', 'broken-link-notifier' ),
             ],
             413 => [
-                'msg'  => 'Payload Too Large',
-                'desc' => 'The request body is larger than limits defined by server. The server might close the connection or return a Retry-After header field. This usually happens if the link is to a large file.',
+                'msg'  => __( 'Payload Too Large', 'broken-link-notifier' ),
+                'desc' => __( 'The request body is larger than limits defined by server. The server might close the connection or return a Retry-After header field. This usually happens if the link is to a large file.', 'broken-link-notifier' ),
             ],
             414 => [
-                'msg'  => 'URI Too Long',
-                'desc' => 'The URI requested by the client is longer than the server is willing to interpret.',
+                'msg'  => __( 'URI Too Long', 'broken-link-notifier' ),
+                'desc' => __( 'The URI requested by the client is longer than the server is willing to interpret.', 'broken-link-notifier' ),
             ],
             415 => [
-                'msg'  => 'Unsupported Media Type',
-                'desc' => 'The media format of the requested data is not supported by the server, so the server is rejecting the request.',
+                'msg'  => __( 'Unsupported Media Type', 'broken-link-notifier' ),
+                'desc' => __( 'The media format of the requested data is not supported by the server, so the server is rejecting the request.', 'broken-link-notifier' ),
             ],
             416 => [
-                'msg'  => 'Range Not Satisfiable',
-                'desc' => 'The ranges specified by the <copde>Range</copde> header field in the request cannot be fulfilled. It\'s possible that the range is outside the size of the target resource\'s data.',
+                'msg'  => __( 'Range Not Satisfiable', 'broken-link-notifier' ),
+                'desc' => __( 'The ranges specified by the <copde>Range</copde> header field in the request cannot be fulfilled. It\'s possible that the range is outside the size of the target resource\'s data.', 'broken-link-notifier' ),
             ],
             417 => [
-                'msg'  => 'Expectation Failed',
-                'desc' => 'The expectation indicated by the <code>Expect</code> request header field cannot be met by the server.',
+                'msg'  => __( 'Expectation Failed', 'broken-link-notifier' ),
+                'desc' => __( 'The expectation indicated by the <code>Expect</code> request header field cannot be met by the server.', 'broken-link-notifier' ),
             ],
             418 => [
-                'msg'  => 'I\'m a Teapot',
-                'desc' => 'The server refuses the attempt to brew coffee with a teapot.',
+                'msg'  => __( 'I\'m a Teapot', 'broken-link-notifier' ),
+                'desc' => __( 'The server refuses the attempt to brew coffee with a teapot.', 'broken-link-notifier' ),
             ],
             421 => [
-                'msg'  => 'Misdirected Request',
-                'desc' => 'The request was directed at a server that is not able to produce a response. This can be sent by a server that is not configured to produce responses for the combination of scheme and authority that are included in the request URI.',
+                'msg'  => __( 'Misdirected Request', 'broken-link-notifier' ),
+                'desc' => __( 'The request was directed at a server that is not able to produce a response. This can be sent by a server that is not configured to produce responses for the combination of scheme and authority that are included in the request URI.', 'broken-link-notifier' ),
             ],
             422 => [
-                'msg'  => 'Unprocessable Entity',
-                'desc' => 'The request was well-formed but was unable to be followed due to semantic errors.',
+                'msg'  => __( 'Unprocessable Entity', 'broken-link-notifier' ),
+                'desc' => __( 'The request was well-formed but was unable to be followed due to semantic errors.', 'broken-link-notifier' ),
             ],
             423 => [
-                'msg'  => 'Locked',
-                'desc' => 'The resource that is being accessed is locked.',
+                'msg'  => __( 'Locked', 'broken-link-notifier' ),
+                'desc' => __( 'The resource that is being accessed is locked.', 'broken-link-notifier' ),
             ],
             424 => [
-                'msg'  => 'Failed Dependency',
-                'desc' => 'The request failed due to failure of a previous request.',
+                'msg'  => __( 'Failed Dependency', 'broken-link-notifier' ),
+                'desc' => __( 'The request failed due to failure of a previous request.', 'broken-link-notifier' ),
             ],
             425 => [
-                'msg'  => 'Too Early',
-                'desc' => 'Indicates that the server is unwilling to risk processing a request that might be replayed.',
+                'msg'  => __( 'Too Early', 'broken-link-notifier' ),
+                'desc' => __( 'Indicates that the server is unwilling to risk processing a request that might be replayed.', 'broken-link-notifier' ),
             ],
             426 => [
-                'msg'  => 'Upgrade Required',
-                'desc' => 'The server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol. The server sends an <code>Upgrade</code> header in a <code>426</code> response to indicate the required protocol(s).',
+                'msg'  => __( 'Upgrade Required', 'broken-link-notifier' ),
+                'desc' => __( 'The server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol. The server sends an <code>Upgrade</code> header in a <code>426</code> response to indicate the required protocol(s).', 'broken-link-notifier' ),
             ],
             429 => [
-                'msg'  => 'Too Many Requests',
-                'desc' => 'The user has sent too many requests in a given amount of time (rate limiting).',
+                'msg'  => __( 'Too Many Requests', 'broken-link-notifier' ),
+                'desc' => __( 'The user has sent too many requests in a given amount of time (rate limiting).', 'broken-link-notifier' ),
             ],
             430 => [
-                'msg'  => 'Request Header Fields Too Large',
-                'desc' => 'Used by Shopify.',
+                'msg'  => __( 'Request Header Fields Too Large', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Shopify.', 'broken-link-notifier' ),
                 'official' => false
             ],
             431 => [
-                'msg'  => 'Request Header Fields Too Large',
-                'desc' => 'The server is unwilling to process the request because its header fields are too large. The request may be resubmitted after reducing the size of the request header fields.',
+                'msg'  => __( 'Request Header Fields Too Large', 'broken-link-notifier' ),
+                'desc' => __( 'The server is unwilling to process the request because its header fields are too large. The request may be resubmitted after reducing the size of the request header fields.', 'broken-link-notifier' ),
             ],
             440 => [
-                'msg'  => 'Login Time-out',
-                'desc' => 'Used by IIS.',
+                'msg'  => __( 'Login Time-out', 'broken-link-notifier' ),
+                'desc' => __( 'Used by IIS.', 'broken-link-notifier' ),
                 'official' => false
             ],
             444 => [
-                'msg'  => 'No Response',
-                'desc' => 'Used by NGINX.',
+                'msg'  => __( 'No Response', 'broken-link-notifier' ),
+                'desc' => __( 'Used by NGINX.', 'broken-link-notifier' ),
                 'official' => false
             ],
             450 => [
-                'msg'  => 'Blocked by Windows Parental Controls',
-                'desc' => 'Used by Microsoft.',
+                'msg'  => __( 'Blocked by Windows Parental Controls', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Microsoft.', 'broken-link-notifier' ),
                 'official' => false
             ],
             451 => [
-                'msg'  => 'Unavailable For Legal Reasons',
-                'desc' => 'The user agent requested a resource that cannot legally be provided, such as a web page censored by a government.',
+                'msg'  => __( 'Unavailable For Legal Reasons', 'broken-link-notifier' ),
+                'desc' => __( 'The user agent requested a resource that cannot legally be provided, such as a web page censored by a government.', 'broken-link-notifier' ),
             ],
             494 => [
-                'msg'  => 'Request header too large',
-                'desc' => 'Used by NGINX.',
+                'msg'  => __( 'Request header too large', 'broken-link-notifier' ),
+                'desc' => __( 'Used by NGINX.', 'broken-link-notifier' ),
                 'official' => false
             ],
             495 => [
-                'msg'  => 'SSL Certificate Error',
-                'desc' => 'Used by NGINX.',
+                'msg'  => __( 'SSL Certificate Error', 'broken-link-notifier' ),
+                'desc' => __( 'Used by NGINX.', 'broken-link-notifier' ),
                 'official' => false
             ],
             496 => [
-                'msg'  => 'SSL Certificate Required',
-                'desc' => 'Used by NGINX.',
+                'msg'  => __( 'SSL Certificate Required', 'broken-link-notifier' ),
+                'desc' => __( 'Used by NGINX.', 'broken-link-notifier' ),
                 'official' => false
             ],
             497 => [
-                'msg'  => 'HTTP Request Sent to HTTPS Port',
-                'desc' => 'Used by NGINX.',
+                'msg'  => __( 'HTTP Request Sent to HTTPS Port', 'broken-link-notifier' ),
+                'desc' => __( 'Used by NGINX.', 'broken-link-notifier' ),
                 'official' => false
             ],
             498 => [
-                'msg'  => 'Invalid Token',
-                'desc' => 'Used by Esri.',
+                'msg'  => __( 'Invalid Token', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Esri.', 'broken-link-notifier' ),
                 'official' => false
             ],
             499 => [
-                'msg'  => 'Token Required',
-                'desc' => 'Used by Esri.',
+                'msg'  => __( 'Token Required', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Esri.', 'broken-link-notifier' ),
                 'official' => false
             ],
             500 => [
-                'msg'  => 'Internal Server Error',
-                'desc' => 'The server has encountered a situation it does not know how to handle. This error is generic, indicating that the server cannot find a more appropriate <code>5XX</code> status code to respond with.',
+                'msg'  => __( 'Internal Server Error', 'broken-link-notifier' ),
+                'desc' => __( 'The server has encountered a situation it does not know how to handle. This error is generic, indicating that the server cannot find a more appropriate <code>5XX</code> status code to respond with.', 'broken-link-notifier' ),
             ],
             501 => [
-                'msg'  => 'Not Implemented',
-                'desc' => 'The request method is not supported by the server and cannot be handled. The only methods that servers are required to support (and therefore that must not return this code) are GET and HEAD.',
+                'msg'  => __( 'Not Implemented', 'broken-link-notifier' ),
+                'desc' => __( 'The request method is not supported by the server and cannot be handled. The only methods that servers are required to support (and therefore that must not return this code) are GET and HEAD.', 'broken-link-notifier' ),
             ],
             502 => [
-                'msg'  => 'Bad Gateway',
-                'desc' => 'This error response means that the server, while working as a gateway to get a response needed to handle the request, got an invalid response.',
+                'msg'  => __( 'Bad Gateway', 'broken-link-notifier' ),
+                'desc' => __( 'This error response means that the server, while working as a gateway to get a response needed to handle the request, got an invalid response.', 'broken-link-notifier' ),
             ],
             503 => [
-                'msg'  => 'Service Unavailable',
-                'desc' => 'The server is not ready to handle the request. Common causes are a server that is down for maintenance or that is overloaded. Note that together with this response, a user-friendly page explaining the problem should be sent. This response should be used for temporary conditions and the <code>Retry-After</code> HTTP header should, if possible, contain the estimated time before the recovery of the service. The webmaster must also take care about the caching-related headers that are sent along with this response, as these temporary condition responses should usually not be cached.',
+                'msg'  => __( 'Service Unavailable', 'broken-link-notifier' ),
+                'desc' => __( 'The server is not ready to handle the request. Common causes are a server that is down for maintenance or that is overloaded. Note that together with this response, a user-friendly page explaining the problem should be sent. This response should be used for temporary conditions and the <code>Retry-After</code> HTTP header should, if possible, contain the estimated time before the recovery of the service. The webmaster must also take care about the caching-related headers that are sent along with this response, as these temporary condition responses should usually not be cached.', 'broken-link-notifier' ),
             ],
             504 => [
-                'msg'  => 'Gateway Timeout',
-                'desc' => 'This error response is given when the server is acting as a gateway and cannot get a response in time.',
+                'msg'  => __( 'Gateway Timeout', 'broken-link-notifier' ),
+                'desc' => __( 'This error response is given when the server is acting as a gateway and cannot get a response in time.', 'broken-link-notifier' ),
             ],
             505 => [
-                'msg'  => 'HTTP Version Not Supported',
-                'desc' => 'The HTTP version used in the request is not supported by the server.',
+                'msg'  => __( 'HTTP Version Not Supported', 'broken-link-notifier' ),
+                'desc' => __( 'The HTTP version used in the request is not supported by the server.', 'broken-link-notifier' ),
             ],
             506 => [
-                'msg'  => 'Variant Also Negotiates',
-                'desc' => 'The server has an internal configuration error: during content negotiation, the chosen variant is configured to engage in content negotiation itself, which results in circular references when creating responses.',
+                'msg'  => __( 'Variant Also Negotiates', 'broken-link-notifier' ),
+                'desc' => __( 'The server has an internal configuration error: during content negotiation, the chosen variant is configured to engage in content negotiation itself, which results in circular references when creating responses.', 'broken-link-notifier' ),
             ],
             507 => [
-                'msg'  => 'Insufficient Storage',
-                'desc' => 'The method could not be performed on the resource because the server is unable to store the representation needed to successfully complete the request.',
+                'msg'  => __( 'Insufficient Storage', 'broken-link-notifier' ),
+                'desc' => __( 'The method could not be performed on the resource because the server is unable to store the representation needed to successfully complete the request.', 'broken-link-notifier' ),
             ],
             508 => [
-                'msg'  => 'Loop Detected',
-                'desc' => 'The server detected an infinite loop while processing the request.',
+                'msg'  => __( 'Loop Detected', 'broken-link-notifier' ),
+                'desc' => __( 'The server detected an infinite loop while processing the request.', 'broken-link-notifier' ),
             ],
             510 => [
-                'msg'  => 'Not Extended',
-                'desc' => 'The client request declares an HTTP Extension (RFC 2774) that should be used to process the request, but the extension is not supported.',
+                'msg'  => __( 'Not Extended', 'broken-link-notifier' ),
+                'desc' => __( 'The client request declares an HTTP Extension (RFC 2774) that should be used to process the request, but the extension is not supported.', 'broken-link-notifier' ),
             ],
             511 => [
-                'msg'  => 'Network Authentication Required',
-                'desc' => 'Indicates that the client needs to authenticate to gain network access.',
+                'msg'  => __( 'Network Authentication Required', 'broken-link-notifier' ),
+                'desc' => __( 'Indicates that the client needs to authenticate to gain network access.', 'broken-link-notifier' ),
             ],
             520 => [
-                'msg'  => 'Web Server Returned an Unknown Error',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Web Server Returned an Unknown Error', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             521 => [
-                'msg'  => 'Web Server Is Down',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Web Server Is Down', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             522 => [
-                'msg'  => 'Connection Timed Out',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Connection Timed Out', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             523 => [
-                'msg'  => 'Origin Is Unreachable',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Origin Is Unreachable', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             524 => [
-                'msg'  => 'A Timeout Occurred',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'A Timeout Occurred', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             525 => [
-                'msg'  => 'SSL Handshake Failed',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'SSL Handshake Failed', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             526 => [
-                'msg'  => 'Invalid SSL Certificate',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Invalid SSL Certificate', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             527 => [
-                'msg'  => 'Railgun Error',
-                'desc' => 'Used by Cloudflare.',
+                'msg'  => __( 'Railgun Error', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Cloudflare.', 'broken-link-notifier' ),
                 'official' => false
             ],
             529 => [
-                'msg'  => 'Site is Overloaded',
-                'desc' => 'Used by Qualys in the SSLLabs.',
+                'msg'  => __( 'Site is Overloaded', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Qualys in the SSLLabs.', 'broken-link-notifier' ),
                 'official' => false
             ],
             530 => [
-                'msg'  => 'Site is Frozen',
-                'desc' => 'Used by Pantheon web platform.',
+                'msg'  => __( 'Site is Frozen', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Pantheon web platform.', 'broken-link-notifier' ),
                 'official' => false
             ],
             598 => [
-                'msg'  => 'Network Read Timeout Error',
-                'desc' => 'Informal convention.',
+                'msg'  => __( 'Network Read Timeout Error', 'broken-link-notifier' ),
+                'desc' => __( 'Informal convention.', 'broken-link-notifier' ),
                 'official' => false
             ],
             666 => [
-                'msg'  => 'Invalid URL or Could Not Resolve Host',
-                'desc' => 'Used by Broken Link Notifier for when a valid URL was not provided or the server responds with <code>cURL error 6: Could not resolve host</code>.',
+                'msg'  => __( 'Invalid URL or Could Not Resolve Host', 'broken-link-notifier' ),
+                'desc' => __( 'Used by Broken Link Notifier for when a valid URL was not provided or the server responds with <code>cURL error 6: Could not resolve host</code>.', 'broken-link-notifier' ),
                 'official' => false
             ],
             999 => [
-                'msg'  => 'Scanning Not Permitted',
-                'desc' => 'A non-standard code.',
+                'msg'  => __( 'Scanning Not Permitted', 'broken-link-notifier' ),
+                'desc' => __( 'A non-standard code.', 'broken-link-notifier' ),
                 'official' => false
             ]
         ];        
@@ -1376,8 +1121,8 @@ class BLNOTIFIER_HELPERS {
         if ( ! isset( $parts[ 'scheme' ], $parts[ 'host' ] ) ) {
             return [
                 'type' => 'broken',
-                'code' => 0,
-                'text' => 'Blocked: invalid or malformed URL',
+                'code' => 666,
+                'text' => __( 'Blocked: invalid or malformed URL', 'broken-link-notifier' ),
                 'link' => $url
             ];
         }
@@ -1386,8 +1131,8 @@ class BLNOTIFIER_HELPERS {
         if ( ! in_array( $scheme, [ 'http', 'https' ], true ) ) {
             return [
                 'type' => 'broken',
-                'code' => 0,
-                'text' => 'Blocked: unsupported URL scheme',
+                'code' => 666,
+                'text' => __( 'Blocked: unsupported URL scheme', 'broken-link-notifier' ),
                 'link' => $url
             ];
         }
@@ -1415,8 +1160,8 @@ class BLNOTIFIER_HELPERS {
         if ( empty( $ips ) ) {
             return [
                 'type' => 'broken',
-                'code' => 0,
-                'text' => 'Blocked: host could not be resolved',
+                'code' => 666,
+                'text' => __( 'Blocked: host could not be resolved', 'broken-link-notifier' ),
                 'link' => $url
             ];
         }
@@ -1425,8 +1170,8 @@ class BLNOTIFIER_HELPERS {
             if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) === false ) {
                 return [
                     'type' => 'broken',
-                    'code' => 0,
-                    'text' => 'Blocked: resolved to internal or reserved IP address',
+                    'code' => 666,
+                    'text' => __( 'Blocked: resolved to internal or reserved IP address', 'broken-link-notifier' ),
                     'link' => $url
                 ];
             }
@@ -1526,7 +1271,12 @@ class BLNOTIFIER_HELPERS {
             $type = 'broken';
 
         // Warnings
-        } elseif ( in_array( $code, $this->get_warning_status_codes() ) ) {
+        } elseif ( in_array( $code, $this->get_warning_status_codes( true ) ) ) {
+            $type = 'warning';
+
+        // Code 0 is always inconclusive (timeout, connection reset, DNS blip, etc.)
+        // and should never be silently treated as good, regardless of settings
+        } elseif ( $code === 0 ) {
             $type = 'warning';
 
         // Good links
@@ -1587,7 +1337,7 @@ class BLNOTIFIER_HELPERS {
         $status = [
             'type' => 'good',
             'code' => 200,
-            'text' => 'OK',
+            'text' => __( 'OK', 'broken-link-notifier' ),
             'link' => $link
         ];
 
@@ -1596,7 +1346,7 @@ class BLNOTIFIER_HELPERS {
             return [
                 'type' => 'omitted',
                 'code' => 200,
-                'text' => 'No link found',
+                'text' => __( 'No link found', 'broken-link-notifier' ),
                 'link' => 'Unknown'
             ];
 
@@ -1610,7 +1360,11 @@ class BLNOTIFIER_HELPERS {
             return [
                 'type' => 'broken',
                 'code' => 0,
-                'text' => 'Did not pass pre-check filter: missing ' . implode( ', ' . $missing ),
+                'text' => sprintf(
+                    /* translators: %s: comma-separated list of missing array keys (type, code, text) */
+                    __( 'Did not pass pre-check filter: missing %s', 'broken-link-notifier' ),
+                    implode( ', ', $missing )
+                ),
                 'link' => $link
             ];
     
@@ -1620,17 +1374,21 @@ class BLNOTIFIER_HELPERS {
 
         // Skip null links
         } elseif ( $link && strlen( trim( $link ) ) == 0 ) {
-            $status[ 'text' ] = 'Skipping null';
+            $status[ 'text' ] = __( 'Skipping null', 'broken-link-notifier' );
             return $status;
         
         // Skip if it is a hashtag / anchor link / query string
         } elseif ( $link[0] == '#' || $link[0] == '?' ) {
-            $status[ 'text' ] = 'Skipping: starts with '.$link[0];
+            $status[ 'text' ] = sprintf(
+                /* translators: %s: the character the link starts with, either # or ? */
+                __( 'Skipping: starts with %s', 'broken-link-notifier' ),
+                $link[0]
+            );
             return $status;
      
         // Skip if omitted
         } elseif ( (new BLNOTIFIER_OMITS)->is_omitted( $link, 'links' ) ) {
-            $status[ 'text' ] = 'Omitted';
+            $status[ 'text' ] = __( 'Omitted', 'broken-link-notifier' );
             $status[ 'type' ] = 'omitted';
             return $status;
         
@@ -1639,7 +1397,7 @@ class BLNOTIFIER_HELPERS {
             $status = [
                 'type' => 'broken',
                 'code' => 0,
-                'text' => 'Empty link',
+                'text' => __( 'Empty link', 'broken-link-notifier' ),
                 'link' => $link
             ];
             
@@ -1651,7 +1409,7 @@ class BLNOTIFIER_HELPERS {
                 return [
                     'type' => 'good',
                     'code' => 200,
-                    'text' => 'Skipping internal pagination or reply link',
+                    'text' => __( 'Skipping internal pagination or reply link', 'broken-link-notifier' ),
                     'link' => $link
                 ];
             }
@@ -1671,7 +1429,7 @@ class BLNOTIFIER_HELPERS {
             // Skip url schemes
             foreach ( $this->get_url_schemes() as $scheme ) {
                 if ( str_starts_with( $link, $scheme.':' ) ) {
-                    $status[ 'text' ] = 'Skipping: Non-Http URL Schema';
+                    $status[ 'text' ] = __( 'Skipping: Non-Http URL Schema', 'broken-link-notifier' );
                     return $status;
                 }
             }
@@ -1745,7 +1503,7 @@ class BLNOTIFIER_HELPERS {
             global $wpdb;
             $table = $wpdb->prefix . 'blnotifier_cache';
     
-            $rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY last_checked DESC", ARRAY_A );
+            $rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY last_checked DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 
             $na = '--';
     
@@ -1810,6 +1568,7 @@ class BLNOTIFIER_HELPERS {
         global $wpdb;
         $table = $wpdb->prefix . 'blnotifier_results';
 
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $table is a hardcoded prefix + fixed name, not user input; type value is bound via prepare().
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT link, text, type, code, source, location, method, author_id, created_at FROM {$table} WHERE type = %s ORDER BY created_at DESC",
@@ -1817,6 +1576,7 @@ class BLNOTIFIER_HELPERS {
             ),
             ARRAY_A
         );
+        // phpcs:enable
 
         $links = [];
         $source_cache = []; // stores [ 'post_id' => ..., 'title' => ... ] for each source URL
@@ -1878,13 +1638,17 @@ class BLNOTIFIER_HELPERS {
      */
     public function get_all_links() {
         $links = [];
-    
-        // Add header/footer links
+
+        // Add header/footer links (classic menus)
         $links = array_merge( $links, $this->get_header_footer_links() );
-    
+
+        // Add block-theme Navigation block links (wp_navigation is a non-public
+        // post type, so it's invisible to the main 'any' post_type query below)
+        $links = array_merge( $links, $this->get_navigation_block_links() );
+
         $paged = 1;
         $per_page = 50;
-    
+
         do {
             $posts = get_posts( [
                 'post_type'      => 'any',
@@ -1893,27 +1657,27 @@ class BLNOTIFIER_HELPERS {
                 'fields'         => 'ids',
                 'paged'          => $paged,
             ] );
-    
+
             if ( empty( $posts ) ) {
                 break;
             }
-    
+
             foreach ( $posts as $post_id ) {
-    
+
                 $post_url = get_the_permalink( $post_id );
                 if ( ( new BLNOTIFIER_OMITS )->is_omitted( $post_url, 'pages' ) ) {
                     continue;
                 }
-    
+
                 $raw_content = get_the_content( null, false, $post_id );
-    
+
                 if ( strpos( $raw_content, '[redirect_this_page' ) !== false ) {
                     continue;
                 }
-    
-                $content = apply_filters( 'the_content', $raw_content );
+
+                $content = apply_filters( 'the_content', $raw_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own filter being invoked here, not a hook this plugin defines.
                 $extracted_links = $this->extract_links( $content );
-    
+
                 if ( !empty( $extracted_links ) ) {
                     foreach ( $extracted_links as $extracted_link ) {
                         $links[] = [
@@ -1924,12 +1688,57 @@ class BLNOTIFIER_HELPERS {
                     }
                 }
             }
-    
+
             $paged++;
         } while ( true );
-    
+
         return $links;
-    } // End get_all_links()    
+    } // End get_all_links()
+
+
+    /**
+     * Get links from block-theme Navigation block posts (wp_navigation post type).
+     * Classic menus are handled separately by get_header_footer_links() since
+     * they're stored differently (nav_menu_item posts) and read via the
+     * Menus API rather than post content.
+     *
+     * @return array
+     */
+    public function get_navigation_block_links() {
+        $links = [];
+
+        if ( ! post_type_exists( 'wp_navigation' ) ) {
+            return $links;
+        }
+
+        $nav_posts = get_posts( [
+            'post_type'      => 'wp_navigation',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+        ] );
+
+        foreach ( $nav_posts as $nav_post_id ) {
+            $raw_content = get_post_field( 'post_content', $nav_post_id );
+            if ( ! $raw_content ) {
+                continue;
+            }
+
+            $extracted_links = $this->extract_links( $raw_content );
+
+            foreach ( $extracted_links as $extracted_link ) {
+                $links[] = [
+                    'link'      => $extracted_link,
+                    'location'  => 'navigation',
+                    'post_id'   => 0,
+                    'menu_id'   => $nav_post_id,
+                    'menu_name' => get_the_title( $nav_post_id ) ?: __( 'Navigation', 'broken-link-notifier' ),
+                ];
+            }
+        }
+
+        return apply_filters( 'blnotifier_navigation_block_links', $links );
+    } // End get_navigation_block_links()
 
 
     /**
@@ -1939,37 +1748,111 @@ class BLNOTIFIER_HELPERS {
      */
     public function get_header_footer_links() {
         $links = [];
-    
-        // Get all registered menus
+
         $locations = get_nav_menu_locations();
-    
+
         foreach ( $locations as $location => $menu_id ) {
             $menu_items = wp_get_nav_menu_items( $menu_id );
             if ( ! $menu_items ) {
                 continue;
             }
-    
+
+            $menu_obj = wp_get_nav_menu_object( $menu_id );
+            $menu_name = $menu_obj ? $menu_obj->name : __( 'Unknown Menu', 'broken-link-notifier' );
+
             if ( strpos( $location, 'header' ) !== false ) {
                 $location_label = 'header';
             } elseif ( strpos( $location, 'footer' ) !== false ) {
                 $location_label = 'footer';
             } else {
                 $location_label = 'menu';
-            }            
-    
+            }
+
+            /**
+             * Filter the detected location label (header/footer/menu) for a given
+             * registered nav menu location slug. Useful for themes with unconventional
+             * menu location names (e.g. 'primary_nav') that would otherwise always fall
+             * back to 'menu'.
+             */
+            $location_label = apply_filters( 'blnotifier_menu_location_label', $location_label, $location, $menu_id );
+
             foreach ( $menu_items as $item ) {
                 if ( ! empty( $item->url ) ) {
                     $links[] = [
-                        'link'     => esc_url_raw( $item->url ),
-                        'location' => $location_label,
-                        'post_id'  => 0,
+                        'link'      => esc_url_raw( $item->url ),
+                        'location'  => $location_label,
+                        'post_id'   => 0,
+                        'menu_id'   => absint( $menu_id ),
+                        'menu_name' => $menu_name,
                     ];
                 }
             }
         }
-    
-        return $links;
+
+        return apply_filters( 'blnotifier_header_footer_links', $links );
     } // End get_header_footer_links()
+
+
+    /**
+     * Fetch a post's live published URL and extract links from the raw HTML
+     *
+     * @param int $post_id
+     * @return array
+     */
+    public function get_remote_page_links( $post_id ) {
+        $post = get_post( $post_id );
+        if ( !$post || $post->post_status !== 'publish' ) {
+            return [];
+        }
+
+        $url = get_permalink( $post_id );
+        if ( !$url ) {
+            return [];
+        }
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => absint( get_option( 'blnotifier_timeout', 5 ) ),
+            'sslverify'   => filter_var( get_option( 'blnotifier_ssl_verify', true ), FILTER_VALIDATE_BOOLEAN ),
+            'user-agent'  => $this->get_user_agent( $url ),
+            'redirection' => absint( get_option( 'blnotifier_max_redirects', 5 ) ),
+        ] );
+
+        if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+            return [];
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        if ( !$body ) {
+            return [];
+        }
+
+        return $this->extract_links( $body );
+    } // End get_remote_page_links()
+
+
+    /**
+     * Merge content-based and remote-fetched links, removing duplicates
+     *
+     * @param array $content_links
+     * @param array $remote_links
+     * @return array
+     */
+    public function merge_and_dedupe_links( $content_links, $remote_links ) {
+        $merged = array_merge( $content_links, $remote_links );
+        $seen = [];
+        $result = [];
+
+        foreach ( $merged as $link ) {
+            $key = strtolower( trim( $link ) );
+            if ( $key === '' || isset( $seen[ $key ] ) ) {
+                continue;
+            }
+            $seen[ $key ] = true;
+            $result[] = $link;
+        }
+
+        return $result;
+    } // End merge_and_dedupe_links()
 
 }
 

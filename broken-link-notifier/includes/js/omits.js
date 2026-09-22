@@ -6,31 +6,31 @@ jQuery( $ => {
 
     // Scan type
     const scanType = blnotifier_omit.scan_type;
-    const omitEl = scanType == 'scan-results' ? '.omit-link a' : '.omit-link';
+    const omitSelector = scanType == 'scan-results' ? '.omit-link a' : '.omit-link';
 
     // Listen for omitting links
-    $( omitEl ).on( 'click', function( e ) {
+    $( document ).on( 'click', omitSelector, function( e ) {
         e.preventDefault();
         var row;
         var link;
         if ( scanType == 'scan-results' ) {
             const linkID = $( this ).closest( 'tr' ).data( 'link-id' );
             $( `#link-${linkID}` ).addClass( 'omitted' );
-            $( this ).replaceWith( 'Omitted' );
+            $( this ).replaceWith( blnotifier_omit.text.omitted );
             link = $( this ).data( 'link' );
         } else if ( scanType == 'scan-single' ) {
             row = $( this ).parent().parent();
             row.addClass( 'pending omitted' );
-            row.find( '.type' ).text( 'Omitted' );
+            row.find( '.type' ).text( blnotifier_omit.text.omitted );
             row.find( '.code' ).text( '' );
             row.find( '.text' ).text( '' );
             row.find( '.speed' ).text( '' );
-            row.find( '.actions' ).hide();
+            row.find( '.actions' ).empty();
             link = row.data( 'link' );
         } else {
             row = $( this ).parent().parent();
             row.addClass( 'omitted' );
-            row.find( '.actions' ).hide();
+            row.find( '.actions' ).empty();
             link = row.data( 'link' );
         }
         omit( nonce, link, 'links', scanType );
@@ -38,17 +38,17 @@ jQuery( $ => {
 
     // Listen for omitting pages
     if ( scanType == 'scan-multi' || scanType == 'scan-results' ) {
-        $( '.omit-page' ).on( 'click', function( e ) {
+        $( document ).on( 'click', '.omit-page', function( e ) {
             e.preventDefault();
             const link = $( this ).data( 'link' );
             if ( scanType == 'scan-results' ) {
-                $( this ).parent().html( 'Omitted' );
+                $( this ).parent().html( blnotifier_omit.text.omitted );
             } else {
                 $( this ).parent().hide();
             }
             if ( scanType == 'scan-multi' ) {
                 const postID = $( this ).data( 'post-id' );
-                $( `#bln-${postID}` ).html( '<em>Omitted</em>' );
+                $( `#bln-${postID}` ).html( '<em>' + blnotifier_omit.text.omitted + '</em>' );
             }
             omit( nonce, link, 'pages', scanType );
         } );
@@ -72,9 +72,15 @@ jQuery( $ => {
             success: function( response ) {
                 // Success
                 if ( response.type == 'success' ) {
-                    
-                    // Update table
                     console.log( link + ' has been omitted.' );
+
+                    // The results table already deleted this from the DB server-side
+                    // (BLNOTIFIER_OMITS::add() calls BLNOTIFIER_RESULTS::remove() for 'scan-results')
+                    // so refresh the table/cards to reflect it instead of leaving a stale row.
+                    if ( page == 'scan-results' && typeof window.blnRefreshResultsTable === 'function' ) {
+                        window.blnRefreshResultsTable();
+                    }
+
                     return true;
                     
                 // Failure
@@ -83,5 +89,5 @@ jQuery( $ => {
                 }
             }
         } )
-    } // End checkLink()
+    } // End omit()
 } )

@@ -27,8 +27,18 @@ class BLNOTIFIER_FULL_SCAN {
 	 */
 	public function init() {
 
-        // Add a run scan button at top of WP List Tables
-        add_action( 'admin_head-edit.php', [ $this, 'run_scan_button' ] );
+        // Always enqueue our own tab page's CSS, regardless of whether legacy Multi-Scan is enabled
+        add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_tab_page_assets' ] );
+
+        // Legacy Multi-Scan is disabled by default in favor of Site Scan.
+        // Enable it either via test mode, or for developers: add_filter( 'blnotifier_enable_legacy_multiscan', '__return_true' );
+        $is_enabled = apply_filters( 'blnotifier_enable_legacy_multiscan', false ) || (new BLNOTIFIER_HELPERS)->is_test_mode();
+        if ( !$is_enabled ) {
+            return;
+        }
+
+        // Add the run-scan button + list table hooks
+        add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
 
         // Remove Edit and Quick Edit links, and add ignore link
         add_action( 'post_row_actions', [ $this, 'row_actions' ], 10, 2 );
@@ -40,10 +50,7 @@ class BLNOTIFIER_FULL_SCAN {
             add_action( 'manage_'.$post_type.'_posts_custom_column', [ $this, 'column_content' ], 10, 2 );
         }
 
-        // Add css
-        add_action( 'admin_head', [ $this, 'css' ] );
-        
-	} // End init()
+    } // End init()
 
 
     /**
@@ -68,43 +75,6 @@ class BLNOTIFIER_FULL_SCAN {
 
 
     /**
-     * Add a run scan button to the top of all post types
-     *
-     * @return void
-     */
-    public function run_scan_button() {
-        if ( !$this->has_access() ) {
-            return;
-        }
-
-        global $current_screen;
-        $post_types = get_option( 'blnotifier_post_types' );
-        $post_types = !empty( $post_types ) ? array_keys( $post_types ) : [ 'post', 'page' ];
-        if ( !in_array( $current_screen->post_type, $post_types ) ) {
-            return;
-        }
-        $nonce = wp_create_nonce( 'blnotifier_blinks' );
-        ?>
-        <script>
-            jQuery( $ => { 
-                const currentURL = window.location.href;
-                var btnURL;
-                var btnText;
-                if ( currentURL.includes( 'blinks=true' ) && currentURL.includes( '_wpnonce=<?php echo esc_html( $nonce ); ?>' ) ) {
-                    btnURL = '<?php echo esc_url( remove_query_arg( [ 'blinks', '_wpnonce' ] ) ); ?>';
-                    btnText = 'Stop Scanning';
-                } else {
-                    btnURL = '<?php echo esc_url( add_query_arg( [ 'blinks' => 'true', '_wpnonce' => $nonce ] ) ); ?>';
-                    btnText = 'Scan for Broken Links';
-                }
-                $( '.wrap > a.page-title-action' ).after( `<a id="bln-run-scan" href="${btnURL}" class="page-title-action" style="margin-left: 10px;"><span class="text">${btnText}</span><span class="done"></span></a>` );
-            } )
-        </script>
-        <?php
-    } // End run_scan_button()
-
-
-    /**
      * Action links
      *
      * @param array $actions
@@ -125,14 +95,14 @@ class BLNOTIFIER_FULL_SCAN {
         // Add page scan to all post types
         if ( in_array( $post->post_type, $post_types ) ) {
             $nonce = wp_create_nonce( 'blnotifier_scan_single' );
-            $actions[ 'scan' ] = '<a class="scan-page" href="'.(new BLNOTIFIER_MENU)->get_plugin_page( 'scan-single' ).'&scan='.$link.'&_wpnonce='. $nonce.'" target="_blank">Scan for Broken Links</a>';
+            $actions[ 'scan' ] = '<a class="scan-page" href="'.(new BLNOTIFIER_MENU)->get_plugin_page( 'scan-single' ).'&scan='.$link.'&_wpnonce='. $nonce.'" target="_blank">'.__( 'Scan for Broken Links', 'broken-link-notifier' ).'</a>';
         }
 
         // Only when scanning
         if ( $this->do_stuff() ) {
             if ( in_array( $post->post_type, $post_types ) ) {
                 if ( !(new BLNOTIFIER_OMITS)->is_omitted( $link, 'pages' ) ) {
-                    $actions[ 'omit-future' ] = '<a class="omit-page" href="#" data-link="'.$link.'" data-post-id="'.$post->ID.'">Omit from Scans</a>';
+                    $actions[ 'omit-future' ] = '<a class="omit-page" href="#" data-link="'.$link.'" data-post-id="'.$post->ID.'">'.__( 'Omit from Scans', 'broken-link-notifier' ).'</a>';
                 }
             }
         }
@@ -180,15 +150,15 @@ class BLNOTIFIER_FULL_SCAN {
             // Skip not published
             $post_status = get_post_status( $post_id );
             if ( $post_status != 'publish' && $post_status != 'private' ) {
-                $results = '<em>Skipping - not published</em>';
+                $results = '<em>'.__( 'Skipping - not published', 'broken-link-notifier' ).'</em>';
 
             // Skip posts page
             } elseif ( $post_id == get_option( 'page_for_posts' ) ) {
-                $results = '<em>Skipping Posts Archive Page since it will never have broken links</em>';
+                $results = '<em>'.__( 'Skipping Posts Archive Page since it will never have broken links', 'broken-link-notifier' ).'</em>';
 
             // Skip omitted pages
             } elseif ( (new BLNOTIFIER_OMITS)->is_omitted( $permalink, 'pages' ) ) {
-                $results = '<em>Omitted</em>';
+                $results = '<em>'.__( 'Omitted', 'broken-link-notifier' ).'</em>';
 
             // Otherwise we're good to go.
             } else {
@@ -200,15 +170,22 @@ class BLNOTIFIER_FULL_SCAN {
                 if ( strpos( $get_the_content, '[redirect_this_page') !== false ) {
 
                     // Skip for redirecting
-                    $results = '<em>Skipping since this page is only redirecting to another page</em>';
+                    $results = '<em>'.__( 'Skipping since this page is only redirecting to another page', 'broken-link-notifier' ).'</em>';
 
-                // Search the content
-                // } elseif ( $content = apply_filters( 'the_content', $get_the_content ) ) {
                 } elseif ( $get_the_content ) {
 
                     // Prevent any redirects
                     add_filter( 'wp_redirect', '__return_false', 1 );
                     add_filter( 'wp_safe_redirect', '__return_false', 1 );
+
+                    // Set up post context so shortcodes relying on get_the_ID()/is_singular() work correctly
+                    global $post;
+                    $scanned_post = get_post( $post_id );
+                    $original_post = $post;
+                    if ( $scanned_post ) {
+                        $post = $scanned_post;
+                        setup_postdata( $post );
+                    }
 
                     // Start output buffering to suppress unexpected output
                     ob_start();
@@ -217,7 +194,7 @@ class BLNOTIFIER_FULL_SCAN {
 
                     try {
                         // Process shortcodes and expand them in the content
-                        $content = apply_filters( 'the_content', $get_the_content );
+                        $content = apply_filters( 'the_content', $get_the_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own filter being invoked here, not a hook this plugin defines.
                     } catch ( Exception $e ) {
                         error_log( 'Error processing shortcodes: ' . $e->getMessage() ); // phpcs:ignore 
                         $redirect_detected = true;
@@ -226,19 +203,31 @@ class BLNOTIFIER_FULL_SCAN {
                     // Clear any unexpected output
                     ob_end_clean();
 
+                    // Restore the original post context
+                    if ( $scanned_post ) {
+                        $post = $original_post;
+                        wp_reset_postdata();
+                    }
+
                     // After processing the content, remove the filters to restore redirect functionality
                     remove_filter( 'wp_redirect', '__return_false', 1 );
                     remove_filter( 'wp_safe_redirect', '__return_false', 1 );
 
                     // Handle redirects
                     if ( $redirect_detected ) {
-                        $results = '<em>This page redirects, skipping...</em>';
+                        $results = '<em>'.__( 'This page redirects, skipping...', 'broken-link-notifier' ).'</em>';
 
                     // Or else extract the links
                     } else {
 
                         // Extract the links
                         $links = $HELPERS->extract_links( $content );
+
+                        // Merge in remotely fetched links, if enabled
+                        if ( filter_var( get_option( 'blnotifier_remote_fetch_links' ), FILTER_VALIDATE_BOOLEAN ) ) {
+                            $remote_links = $HELPERS->get_remote_page_links( $post_id );
+                            $links = $HELPERS->merge_and_dedupe_links( $links, $remote_links );
+                        }
 
                         // Display the number of broken links found
                         if ( !empty( $links ) ) {
@@ -248,19 +237,35 @@ class BLNOTIFIER_FULL_SCAN {
 
                             // Start container
                             $results = '<div id="bln-results-'.$post_id.'" class="bln-scan-results">
-                                <span class="progress dotdotdot"><em>Pending</em></span>';
+                                <span class="progress dotdotdot"><em>'.__( 'Pending', 'broken-link-notifier' ).'</em></span>';
 
                                 // HELPERS
                                 $HELPERS = new BLNOTIFIER_HELPERS;
 
-                                // Add the counts
-                                $results .= '<div id="bln-counts-'.$post_id.'" class="bln-count-cont">
-                                    <span class="count-links"><strong>'.$count_links.'</strong> link'.$HELPERS->include_s( $count_links ).' found</span>
-                                    <span class="count-broken-links"><strong>0</strong> broken link(s) found</span>
-                                    <span class="count-warning-links"><strong>0</strong> warning link(s) found</span>
-                                    <span class="count-error-links"><strong>0</strong> error(s) occured</span>
-                                    <div class="time-loaded">Results generated in <strong><span class="timing">0</span> seconds</strong></div>
-                                </div>';
+                                // Add the counts.
+                                $results .= sprintf(
+                                    '<div id="bln-counts-%1$d" class="bln-count-cont">
+                                        <span class="count-links"><strong>%2$d</strong> %3$s %4$s</span>
+                                        <span class="count-broken-links"><strong>0</strong> %5$s</span>
+                                        <span class="count-warning-links"><strong>0</strong> %6$s</span>
+                                        <span class="count-error-links"><strong>0</strong> %7$s</span>
+                                        <div class="time-loaded">%8$s <strong><span class="timing">0</span> %9$s</strong></div>
+                                    </div>',
+                                    $post_id,
+                                    $count_links,
+                                    /* translators: Used after the number of links. */
+                                    _n( 'link', 'links', $count_links, 'broken-link-notifier' ),
+                                    /* translators: Used after the number of links. */
+                                    __( 'found', 'broken-link-notifier' ),
+                                    /* translators: Used after the number of broken links. */
+                                    __( 'broken links found', 'broken-link-notifier' ),
+                                    /* translators: Used after the number of warning links. */
+                                    __( 'warning links found', 'broken-link-notifier' ),
+                                    /* translators: Used after the number of errors. */
+                                    __( 'errors occurred', 'broken-link-notifier' ),
+                                    __( 'Results generated in', 'broken-link-notifier' ),
+                                    __( 'seconds', 'broken-link-notifier' )
+                                );
 
                             // End container
                             $results .= '</div>';
@@ -278,20 +283,20 @@ class BLNOTIFIER_FULL_SCAN {
                                     $page_url = urlencode( $link );
 
                                     // If it is broken, then display this with JS
-                                    $results .= '<li class="link" data-link="'.$link.'" data-post-id="'.$post_id.'"><strong><a class="url" href="'.$link.'" target="_blank">'.$link.'</a></strong><div class="status"></div><div class="actions"><a class="omit-link" href="#">Omit</a> | <a href="'.$permalink.'?blink='.$page_url.'" target="_blank">Find On Page</a></div></li>';
+                                    $results .= '<li class="link" data-link="'.$link.'" data-post-id="'.$post_id.'"><strong><a class="url" href="'.$link.'" target="_blank">'.$link.'</a></strong><div class="status"></div><div class="actions"><a class="omit-link" href="#">'.__( 'Omit', 'broken-link-notifier' ).'</a> | <a href="'.$permalink.'?blink='.$page_url.'" target="_blank">'.__( 'Find On Page', 'broken-link-notifier' ).'</a></div></li>';
                                 }
 
                             // End the list
                             $results .= '</ul>';
 
                         } else {
-                            $results = '<em>No links found</em>';
+                            $results = '<em>'.__( 'No links found', 'broken-link-notifier' ).'</em>';
                         }
                     }
                     
                 // No content
                 } else {
-                    $results = '<em>No content found</em>';
+                    $results = '<em>'.__( 'No content found', 'broken-link-notifier' ).'</em>';
                 }
             }
 
@@ -302,92 +307,52 @@ class BLNOTIFIER_FULL_SCAN {
         }
     } // End column_content()
 
-    
+
     /**
-     * Adjust the width of the admin column
+     * Enqueue the Multi-Scan tab page's own CSS, regardless of enabled state
      *
+     * @param string $screen
      * @return void
      */
-    public function css() {
-        // Only add it if the query string exists
-        if ( $this->do_stuff() && $this->has_access() ) {
-            echo '<style type="text/css">
-            .bln-count-cont {
-                margin: 30px 0px;
-                background: white;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                width: 300px;
-                padding: 20px;
-            }
-            .count-posts,
-            .count-links,
-            .count-broken-links,
-            .count-warning-links,
-            .count-error-links,
-            .time-loaded,
-            .blinks-notice {
-                display: block;
-                padding: 2px 5px;
-            }
-            .bln-links {
-                list-style: auto;
-            }
-            .bln-links .link {
-                display: none;
-                margin-left: 20px;
-                margin-bottom: 20px;
-            }
-            .bln-links .link.omitted {
-                opacity: .5;
-            }
-            .bln-links .link.omitted a:first-of-type {
-                text-decoration: line-through;
-            }
-            .bln-links .link .actions {
-                display: none;
-                margin-top: 0.3rem;
-            }
-            .count-broken-links.found,
-            .link.broken .status .type {
-                background: red;
-                color: white;
-            }
-            .count-warning-links.found,
-            .link.warning .status .type {
-                background: yellow;
-            }
-            .count-error-links.found,
-            .link.error .status .type {
-                background: black;
-                color: white;
-            }
-            .link .status {
-                margin-top: 7px;
-            }
-            .link .status .type {
-                padding: 1px 10px;
-                font-weight: bold;
-                width: 100px;
-                text-align: center;
-                text-transform: uppercase;
-                box-shadow: 0 2px 4px 0 rgba(7, 36, 86, 0.5);
-                border: 1px solid rgba(7, 36, 86, 0.075);
-                border-radius: 10px;
-            }
-            .dotdotdot:after {
-                display: inline-block;
-                animation: dotty steps(1,end) 1s infinite;
-                content: "";
-            }
-            @keyframes dotty {
-                0%   { content: ""; }
-                25%  { content: "."; }
-                50%  { content: ".."; }
-                75%  { content: "..."; }
-                100% { content: ""; }
-            }
-            </style>';
+    public function enqueue_tab_page_assets( $screen ) {
+        $options_page = 'toplevel_page_'.BLNOTIFIER_TEXTDOMAIN;
+        $tab = (new BLNOTIFIER_HELPERS)->get_tab();
+
+        if ( $screen === $options_page && $tab === 'scan-multi' ) {
+            wp_enqueue_style( 'blnotifier-scan-multi', BLNOTIFIER_PLUGIN_CSS_PATH.'scan-multi.css', [], BLNOTIFIER_SCRIPT_VERSION );
         }
-    } // End css()
+    } // End enqueue_tab_page_assets()
+
+
+    /**
+     * Enqueue the run-scan button script and its CSS on the WP List Table screens (only when enabled)
+     *
+     * @param string $screen
+     * @return void
+     */
+    public function enqueue_scripts( $screen ) {
+        if ( $screen !== 'edit.php' || !$this->has_access() ) {
+            return;
+        }
+
+        global $current_screen;
+        $post_types = get_option( 'blnotifier_post_types' );
+        $post_types = !empty( $post_types ) ? array_keys( $post_types ) : [ 'post', 'page' ];
+        if ( !isset( $current_screen->post_type ) || !in_array( $current_screen->post_type, $post_types ) ) {
+            return;
+        }
+
+        wp_enqueue_style( 'blnotifier-scan-multi', BLNOTIFIER_PLUGIN_CSS_PATH.'scan-multi.css', [], BLNOTIFIER_SCRIPT_VERSION );
+
+        $nonce = wp_create_nonce( 'blnotifier_blinks' );
+        $handle = 'blnotifier_scan_multi_button_script';
+        wp_register_script( $handle, BLNOTIFIER_PLUGIN_JS_PATH.'scan-multi-button.js', [ 'jquery' ], BLNOTIFIER_SCRIPT_VERSION, true );
+        wp_localize_script( $handle, 'blnotifier_scan_multi_button', [
+            'nonce'     => $nonce,
+            'start_url' => add_query_arg( [ 'blinks' => 'true', '_wpnonce' => $nonce ] ),
+            'stop_url'  => remove_query_arg( [ 'blinks', '_wpnonce' ] ),
+        ] );
+        wp_enqueue_script( $handle );
+        wp_enqueue_script( 'jquery' );
+    } // End enqueue_scripts()
 }
